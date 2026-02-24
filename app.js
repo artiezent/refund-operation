@@ -1,5 +1,52 @@
 // Daily KPI Dashboard - Main Application
 
+// ==========================================
+// 인증 (비밀번호 보호)
+// ==========================================
+const AUTH_HASH = 'e4ea996fd5ff4cb8fd04f92c2e807c3ddded3d85874006b3c16c15c18fc3b198';
+const AUTH_SESSION_KEY = 'kpi_authenticated';
+
+async function sha256(message) {
+    const msgBuffer = new TextEncoder().encode(message);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function handleLogin() {
+    const input = document.getElementById('auth-password');
+    const errorEl = document.getElementById('auth-error');
+    const password = input.value.trim();
+
+    if (!password) {
+        errorEl.textContent = '비밀번호를 입력해주세요.';
+        errorEl.style.display = 'block';
+        input.focus();
+        return;
+    }
+
+    const hash = await sha256(password);
+    if (hash === AUTH_HASH) {
+        sessionStorage.setItem(AUTH_SESSION_KEY, 'true');
+        document.getElementById('auth-gate').style.display = 'none';
+        document.getElementById('dashboard-wrapper').style.display = 'block';
+    } else {
+        errorEl.textContent = '비밀번호가 올바르지 않습니다.';
+        errorEl.style.display = 'block';
+        input.value = '';
+        input.focus();
+    }
+}
+
+function checkAuth() {
+    if (sessionStorage.getItem(AUTH_SESSION_KEY) === 'true') {
+        document.getElementById('auth-gate').style.display = 'none';
+        document.getElementById('dashboard-wrapper').style.display = 'block';
+    }
+}
+
+// ==========================================
+
 // DOM Elements
 const tabButtons = document.querySelectorAll('.tab-btn');
 const tabContents = document.querySelectorAll('.tab-content');

@@ -1,3 +1,96 @@
+/* 로그인 게이트 */
+.auth-gate {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+    z-index: 99999;
+}
+
+.auth-card {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    padding: 48px 40px;
+    width: 380px;
+    text-align: center;
+    backdrop-filter: blur(20px);
+    box-shadow: 0 24px 48px rgba(0, 0, 0, 0.3);
+}
+
+.auth-logo {
+    font-size: 28px;
+    font-weight: 800;
+    color: #818cf8;
+    letter-spacing: -0.5px;
+    margin-bottom: 8px;
+}
+
+.auth-desc {
+    font-size: 14px;
+    color: rgba(255, 255, 255, 0.5);
+    margin-bottom: 32px;
+}
+
+.auth-form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.auth-input {
+    width: 100%;
+    padding: 14px 16px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+    font-size: 15px;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.auth-input::placeholder {
+    color: rgba(255, 255, 255, 0.3);
+}
+
+.auth-input:focus {
+    border-color: #818cf8;
+}
+
+.auth-btn {
+    width: 100%;
+    padding: 14px;
+    border: none;
+    border-radius: 10px;
+    background: #6366f1;
+    color: #fff;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.1s;
+}
+
+.auth-btn:hover {
+    background: #4f46e5;
+}
+
+.auth-btn:active {
+    transform: scale(0.98);
+}
+
+.auth-error {
+    margin-top: 16px;
+    padding: 10px;
+    border-radius: 8px;
+    background: rgba(239, 68, 68, 0.15);
+    color: #f87171;
+    font-size: 13px;
+    font-weight: 600;
+}
+
 /* CSS Reset & Base Styles */
 * {
     margin: 0;

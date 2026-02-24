@@ -8,6 +8,21 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html-to-image/1.11.11/html-to-image.min.js"></script>
 </head>
 <body>
+    <!-- 로그인 게이트 -->
+    <div id="auth-gate" class="auth-gate">
+        <div class="auth-card">
+            <div class="auth-logo">Daily KPI</div>
+            <p class="auth-desc">접속하려면 비밀번호를 입력해주세요.</p>
+            <div class="auth-form">
+                <input type="password" id="auth-password" class="auth-input" placeholder="비밀번호" autocomplete="off" onkeydown="if(event.key==='Enter')handleLogin()">
+                <button class="auth-btn" onclick="handleLogin()">로그인</button>
+            </div>
+            <div id="auth-error" class="auth-error" style="display:none;"></div>
+        </div>
+    </div>
+
+    <!-- 대시보드 (인증 후 표시) -->
+    <div id="dashboard-wrapper" style="display:none;">
     <div class="container">
         <!-- 헤더 -->
         <header class="header">
@@ -1090,6 +1105,9 @@
         </section>
     </div>
 
+    </div><!-- /dashboard-wrapper -->
+
     <script src="app.js"></script>
+    <script>checkAuth();</script>
 </body>
 </html>
