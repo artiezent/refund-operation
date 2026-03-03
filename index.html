@@ -87,6 +87,7 @@
         <nav class="tab-nav">
             <button class="tab-btn active" data-tab="conversion">전환파트</button>
             <button class="tab-btn" data-tab="payment">결제파트</button>
+            <button class="tab-btn" data-tab="payment-yearly">결제파트 누적</button>
             <button class="tab-btn" data-tab="collection">추심</button>
         </nav>
 
@@ -97,7 +98,11 @@
             <div class="kpi-section performance-summary">
                 <div class="section-header">
                     <h2 class="section-title">성과 요약</h2>
-                    <span class="current-month" id="selected-perf-month" style="font-size: 14px; color: var(--text-secondary);">2026년 2월</span>
+                    <div class="month-selector">
+                        <button class="month-btn" onclick="changePerfMonth(-1)">◀</button>
+                        <span class="current-month" id="selected-perf-month">2026년 3월</span>
+                        <button class="month-btn" onclick="changePerfMonth(1)">▶</button>
+                    </div>
                 </div>
 
                 <!-- 로딩 상태 -->
@@ -614,22 +619,99 @@
                     <div class="kpi-grid">
                         <div class="kpi-card">
                             <div class="kpi-header">
+                                <h3 class="kpi-title" id="monthly-refund-title">1월 환급완료</h3>
+                                <span class="kpi-badge badge-blue">안내 기준</span>
+                            </div>
+                            <div class="kpi-value" id="monthly-refund-amount">₩0</div>
+                            <div class="kpi-breakdown">
+                                <div class="breakdown-row">
+                                    <span class="breakdown-label">환급 건수</span>
+                                    <span class="breakdown-value" id="monthly-refund-count">0건</span>
+                                </div>
+                                <div class="breakdown-row">
+                                    <span class="breakdown-label">기준</span>
+                                    <span class="breakdown-value">최초결제안내일(KST) 기준</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="kpi-card">
+                            <div class="kpi-header">
                                 <h3 class="kpi-title" id="monthly-payment-title">1월 결제금액</h3>
                                 <span class="kpi-badge badge-purple">Monthly</span>
                             </div>
                             <div class="kpi-value" id="monthly-payment-amount">₩0</div>
+                            <div class="kpi-progress">
+                                <div class="progress-bar" id="payment-progress-fill" style="width: 0%"></div>
+                            </div>
                             <div class="kpi-breakdown">
+                                <div class="breakdown-row">
+                                    <span class="breakdown-label">진행률</span>
+                                    <span class="breakdown-value" id="payment-progress-rate">0%</span>
+                                </div>
                                 <div class="breakdown-row">
                                     <span class="breakdown-label">결제 건수</span>
                                     <span class="breakdown-value" id="monthly-payment-count">0건</span>
                                 </div>
                                 <div class="breakdown-row">
-                                    <span class="breakdown-label">기준</span>
-                                    <span class="breakdown-value">성사일자(KST) 기준</span>
+                                    <span class="breakdown-label">목표 금액</span>
+                                    <span class="breakdown-value" id="payment-target-display">미설정</span>
                                 </div>
                             </div>
-                            <div style="margin-top: 16px;">
+                            <div class="target-input-row hide-on-capture">
+                                <label for="payment-target-input">목표금액:</label>
+                                <input type="text" id="payment-target-input" placeholder="예: 5억" onchange="savePaymentTarget()">
+                            </div>
+                            <div style="margin-top: 12px;">
                                 <button class="btn btn-sm btn-primary" onclick="downloadMonthlyRawData()">📥 로우데이터 다운로드</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 월간 고객 컨택률 + 30일 초과 결제 섹션 -->
+                <div class="kpi-section">
+                    <div class="section-header">
+                        <h2 class="section-title">고객 컨택률 / 장기 미결제 현황</h2>
+                    </div>
+                    <div class="kpi-grid">
+                        <div class="kpi-card">
+                            <div class="kpi-header">
+                                <h3 class="kpi-title">컨택률</h3>
+                                <span class="kpi-badge badge-blue">월간 기준</span>
+                            </div>
+                            <div class="kpi-value" id="monthly-contact-rate">0%</div>
+                            <div class="kpi-breakdown">
+                                <div class="breakdown-row">
+                                    <span class="breakdown-label">8일+ 경과 (분모)</span>
+                                    <span class="breakdown-value" id="monthly-contact-denom">0건 / ₩0</span>
+                                </div>
+                                <div class="breakdown-row">
+                                    <span class="breakdown-label">컨택 완료 (분자)</span>
+                                    <span class="breakdown-value" id="monthly-contact-numer">0건 / ₩0</span>
+                                </div>
+                            </div>
+                            <div class="kpi-formula">
+                                성사일 - 최초결제안내일 ≥ 8일 중 고객유형 값이 있는 비율
+                            </div>
+                        </div>
+                        <div class="kpi-card">
+                            <div class="kpi-header">
+                                <h3 class="kpi-title">30일 초과 결제</h3>
+                                <span class="kpi-badge badge-red">월간 기준</span>
+                            </div>
+                            <div class="kpi-value" id="monthly-over30d-amount">₩0</div>
+                            <div class="kpi-breakdown">
+                                <div class="breakdown-row">
+                                    <span class="breakdown-label">건수</span>
+                                    <span class="breakdown-value" id="monthly-over30d-count">0건</span>
+                                </div>
+                                <div class="breakdown-row">
+                                    <span class="breakdown-label">결제금액 대비</span>
+                                    <span class="breakdown-value" id="monthly-over30d-ratio">0%</span>
+                                </div>
+                            </div>
+                            <div class="kpi-formula">
+                                최초결제안내일 → 성사일까지 30일 초과 소요된 결제 금액
                             </div>
                         </div>
                     </div>
@@ -745,10 +827,10 @@
                                     <tr>
                                         <th class="th-period">기간</th>
                                         <th class="th-target">목표</th>
-                                        <th class="th-rate">건수 결제율</th>
-                                        <th class="th-rate">금액 결제율</th>
-                                        <th class="th-detail">건수 (결제/안내)</th>
+                                        <th class="th-rate th-rate-primary">금액 결제율</th>
                                         <th class="th-detail">금액 (결제/안내)</th>
+                                        <th class="th-rate">건수 결제율</th>
+                                        <th class="th-detail">건수 (결제/안내)</th>
                                         <th class="th-status">달성</th>
                                     </tr>
                                 </thead>
@@ -758,17 +840,17 @@
                                             <span class="period-badge period-instant">당일</span>
                                         </td>
                                         <td class="td-target">-</td>
-                                        <td class="td-rate">
-                                            <span class="rate-value" id="weekly-rate-cnt-0d">0%</span>
-                                        </td>
-                                        <td class="td-rate">
+                                        <td class="td-rate td-rate-primary">
                                             <span class="rate-value rate-amount" id="weekly-rate-amt-0d">0%</span>
                                         </td>
                                         <td class="td-detail">
-                                            <span id="weekly-detail-cnt-0d">0 / 0</span>
+                                            <span id="weekly-detail-amt-0d">0억 / 0억</span>
+                                        </td>
+                                        <td class="td-rate td-rate-secondary">
+                                            <span class="rate-value" id="weekly-rate-cnt-0d">0%</span>
                                         </td>
                                         <td class="td-detail">
-                                            <span id="weekly-detail-amt-0d">0억 / 0억</span>
+                                            <span id="weekly-detail-cnt-0d">0 / 0</span>
                                         </td>
                                         <td class="td-status">-</td>
                                     </tr>
@@ -777,17 +859,17 @@
                                             <span class="period-badge period-fast">3일 이내</span>
                                         </td>
                                         <td class="td-target"><span class="target-badge">80%</span></td>
-                                        <td class="td-rate">
-                                            <span class="rate-value" id="weekly-rate-cnt-3d">0%</span>
-                                        </td>
-                                        <td class="td-rate">
+                                        <td class="td-rate td-rate-primary">
                                             <span class="rate-value rate-amount" id="weekly-rate-amt-3d">0%</span>
                                         </td>
                                         <td class="td-detail">
-                                            <span id="weekly-detail-cnt-3d">0 / 0</span>
+                                            <span id="weekly-detail-amt-3d">0억 / 0억</span>
+                                        </td>
+                                        <td class="td-rate td-rate-secondary">
+                                            <span class="rate-value" id="weekly-rate-cnt-3d">0%</span>
                                         </td>
                                         <td class="td-detail">
-                                            <span id="weekly-detail-amt-3d">0억 / 0억</span>
+                                            <span id="weekly-detail-cnt-3d">0 / 0</span>
                                         </td>
                                         <td class="td-status" id="weekly-status-3d">-</td>
                                     </tr>
@@ -796,17 +878,17 @@
                                             <span class="period-badge period-week">7일 이내</span>
                                         </td>
                                         <td class="td-target">-</td>
-                                        <td class="td-rate">
-                                            <span class="rate-value" id="weekly-rate-cnt-7d">0%</span>
-                                        </td>
-                                        <td class="td-rate">
+                                        <td class="td-rate td-rate-primary">
                                             <span class="rate-value rate-amount" id="weekly-rate-amt-7d">0%</span>
                                         </td>
                                         <td class="td-detail">
-                                            <span id="weekly-detail-cnt-7d">0 / 0</span>
+                                            <span id="weekly-detail-amt-7d">0억 / 0억</span>
+                                        </td>
+                                        <td class="td-rate td-rate-secondary">
+                                            <span class="rate-value" id="weekly-rate-cnt-7d">0%</span>
                                         </td>
                                         <td class="td-detail">
-                                            <span id="weekly-detail-amt-7d">0억 / 0억</span>
+                                            <span id="weekly-detail-cnt-7d">0 / 0</span>
                                         </td>
                                         <td class="td-status">-</td>
                                     </tr>
@@ -815,17 +897,17 @@
                                             <span class="period-badge period-3week">21일 이내</span>
                                         </td>
                                         <td class="td-target">-</td>
-                                        <td class="td-rate">
-                                            <span class="rate-value" id="weekly-rate-cnt-21d">0%</span>
-                                        </td>
-                                        <td class="td-rate">
+                                        <td class="td-rate td-rate-primary">
                                             <span class="rate-value rate-amount" id="weekly-rate-amt-21d">0%</span>
                                         </td>
                                         <td class="td-detail">
-                                            <span id="weekly-detail-cnt-21d">0 / 0</span>
+                                            <span id="weekly-detail-amt-21d">0억 / 0억</span>
+                                        </td>
+                                        <td class="td-rate td-rate-secondary">
+                                            <span class="rate-value" id="weekly-rate-cnt-21d">0%</span>
                                         </td>
                                         <td class="td-detail">
-                                            <span id="weekly-detail-amt-21d">0억 / 0억</span>
+                                            <span id="weekly-detail-cnt-21d">0 / 0</span>
                                         </td>
                                         <td class="td-status">-</td>
                                     </tr>
@@ -834,17 +916,17 @@
                                             <span class="period-badge period-month">30일 이내</span>
                                         </td>
                                         <td class="td-target"><span class="target-badge">90%</span></td>
-                                        <td class="td-rate">
-                                            <span class="rate-value" id="weekly-rate-cnt-30d">0%</span>
-                                        </td>
-                                        <td class="td-rate">
+                                        <td class="td-rate td-rate-primary">
                                             <span class="rate-value rate-amount" id="weekly-rate-amt-30d">0%</span>
                                         </td>
                                         <td class="td-detail">
-                                            <span id="weekly-detail-cnt-30d">0 / 0</span>
+                                            <span id="weekly-detail-amt-30d">0억 / 0억</span>
+                                        </td>
+                                        <td class="td-rate td-rate-secondary">
+                                            <span class="rate-value" id="weekly-rate-cnt-30d">0%</span>
                                         </td>
                                         <td class="td-detail">
-                                            <span id="weekly-detail-amt-30d">0억 / 0억</span>
+                                            <span id="weekly-detail-cnt-30d">0 / 0</span>
                                         </td>
                                         <td class="td-status" id="weekly-status-30d">-</td>
                                     </tr>
@@ -853,17 +935,17 @@
                                             <span class="period-badge period-2month">60일 이내</span>
                                         </td>
                                         <td class="td-target"><span class="target-badge">95%</span></td>
-                                        <td class="td-rate">
-                                            <span class="rate-value" id="weekly-rate-cnt-60d">0%</span>
-                                        </td>
-                                        <td class="td-rate">
+                                        <td class="td-rate td-rate-primary">
                                             <span class="rate-value rate-amount" id="weekly-rate-amt-60d">0%</span>
                                         </td>
                                         <td class="td-detail">
-                                            <span id="weekly-detail-cnt-60d">0 / 0</span>
+                                            <span id="weekly-detail-amt-60d">0억 / 0억</span>
+                                        </td>
+                                        <td class="td-rate td-rate-secondary">
+                                            <span class="rate-value" id="weekly-rate-cnt-60d">0%</span>
                                         </td>
                                         <td class="td-detail">
-                                            <span id="weekly-detail-amt-60d">0억 / 0억</span>
+                                            <span id="weekly-detail-cnt-60d">0 / 0</span>
                                         </td>
                                         <td class="td-status" id="weekly-status-60d">-</td>
                                     </tr>
@@ -912,7 +994,7 @@
                 <div class="data-info">
                     <span class="info-label">마지막 동기화:</span>
                     <span class="info-value" id="last-sync-time">-</span>
-                    <button class="btn btn-sm btn-secondary" onclick="loadPaymentData()">🔄 새로고침</button>
+                    <button class="btn btn-sm btn-secondary" onclick="refreshAllData()">🔄 새로고침</button>
                     <button class="btn btn-sm btn-primary" onclick="downloadWeeklyRawData()">📥 로우데이터 다운로드</button>
                 </div>
 
@@ -1068,7 +1150,9 @@
                                     <tr>
                                         <th>No.</th>
                                         <th>거래명</th>
+                                        <th>단계</th>
                                         <th>금액</th>
+                                        <th id="yt-balance-header" style="cursor:pointer;" onclick="sortYtDetailByBalance()">잔액 ▼</th>
                                         <th>이관일</th>
                                         <th>결제일</th>
                                     </tr>
@@ -1098,7 +1182,208 @@
                 <div class="data-info">
                     <span class="info-label">마지막 동기화:</span>
                     <span class="info-value" id="collection-last-sync-time">-</span>
-                    <button class="btn btn-sm btn-secondary" onclick="loadCollectionData()">🔄 새로고침</button>
+                    <button class="btn btn-sm btn-secondary" onclick="refreshAllData()">🔄 새로고침</button>
+                </div>
+
+            </div>
+        </section>
+
+        <!-- 결제파트 누적 페이지 -->
+        <section class="tab-content" id="payment-yearly">
+            <!-- 로딩 -->
+            <div class="loading-state" id="py-loading" style="display: none;">
+                <div class="loading-spinner"></div>
+                <p>데이터를 불러오는 중...</p>
+            </div>
+            <!-- 에러 -->
+            <div class="error-state" id="py-error" style="display: none;">
+                <span class="error-icon">⚠️</span>
+                <p id="py-error-message">데이터 로딩에 실패했습니다.</p>
+                <button class="btn btn-primary" onclick="loadPaymentYearlyData()">다시 시도</button>
+            </div>
+            <!-- 컨텐츠 -->
+            <div id="py-content" style="display: none;">
+
+                <!-- 1. 연간 누적 결제금액 -->
+                <div class="kpi-section">
+                    <div class="section-header">
+                        <h2 class="section-title">연간 누적 결제금액</h2>
+                        <div class="month-selector">
+                            <button class="month-btn" onclick="changePaymentYearlyYear(-1)">◀</button>
+                            <span class="current-month" id="py-selected-year">2026년</span>
+                            <button class="month-btn" onclick="changePaymentYearlyYear(1)">▶</button>
+                        </div>
+                    </div>
+                    <div class="kpi-grid">
+                        <div class="kpi-card">
+                            <div class="kpi-header">
+                                <h3 class="kpi-title" id="py-refund-title">2026년 환급완료</h3>
+                                <span class="kpi-badge badge-blue">연간 누적</span>
+                            </div>
+                            <div class="kpi-value" id="py-refund-amount">₩0</div>
+                            <div class="kpi-breakdown">
+                                <div class="breakdown-row">
+                                    <span class="breakdown-label">환급 건수</span>
+                                    <span class="breakdown-value" id="py-refund-count">0건</span>
+                                </div>
+                                <div class="breakdown-row">
+                                    <span class="breakdown-label">기준</span>
+                                    <span class="breakdown-value">최초결제안내일(KST) 기준</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="kpi-card">
+                            <div class="kpi-header">
+                                <h3 class="kpi-title" id="py-payment-title">2026년 결제금액</h3>
+                                <span class="kpi-badge badge-purple">연간 누적</span>
+                            </div>
+                            <div class="kpi-value" id="py-payment-amount">₩0</div>
+                            <div class="kpi-progress">
+                                <div class="progress-bar" id="py-progress-fill" style="width: 0%"></div>
+                            </div>
+                            <div class="kpi-breakdown">
+                                <div class="breakdown-row">
+                                    <span class="breakdown-label">진행률</span>
+                                    <span class="breakdown-value" id="py-progress-rate">0%</span>
+                                </div>
+                                <div class="breakdown-row">
+                                    <span class="breakdown-label">결제 건수</span>
+                                    <span class="breakdown-value" id="py-payment-count">0건</span>
+                                </div>
+                                <div class="breakdown-row">
+                                    <span class="breakdown-label">연간 목표</span>
+                                    <span class="breakdown-value" id="py-target-display">미설정</span>
+                                </div>
+                                <div class="breakdown-row" style="margin-top:6px; padding-top:6px; border-top:1px solid var(--border-color);">
+                                    <span class="breakdown-label" style="color:var(--accent-danger);">30일 초과</span>
+                                    <span class="breakdown-value" style="color:var(--accent-danger);"><span id="py-over30d-amount">₩0</span> / <span id="py-over30d-count">0건</span> / <span id="py-over30d-ratio">0%</span></span>
+                                </div>
+                            </div>
+                            <div class="target-input-row hide-on-capture">
+                                <label for="py-target-input">연간 목표금액:</label>
+                                <input type="text" id="py-target-input" placeholder="예: 50억" onchange="savePaymentYearlyTarget()">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 2. 연간 누적 결제율 목표 -->
+                <div class="kpi-section">
+                    <div class="section-header">
+                        <h2 class="section-title">연간 누적 결제율</h2>
+                    </div>
+                    <div class="conversion-table-wrapper">
+                        <table class="conversion-table weekly-table">
+                            <thead>
+                                <tr>
+                                    <th class="th-period">기간</th>
+                                    <th class="th-rate th-rate-primary">금액 결제율</th>
+                                    <th class="th-detail">금액 (결제/안내)</th>
+                                    <th class="th-rate">건수 결제율</th>
+                                    <th class="th-detail">건수 (결제/안내)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td class="td-period"><span class="period-badge period-instant">당일</span></td>
+                                    <td class="td-rate td-rate-primary"><span class="rate-value rate-amount" id="py-rate-amt-0d">0%</span></td>
+                                    <td class="td-detail"><span id="py-detail-amt-0d">0억 / 0억</span></td>
+                                    <td class="td-rate td-rate-secondary"><span class="rate-value" id="py-rate-cnt-0d">0%</span></td>
+                                    <td class="td-detail"><span id="py-detail-cnt-0d">0 / 0</span></td>
+                                </tr>
+                                <tr>
+                                    <td class="td-period"><span class="period-badge period-week">7일 이내</span></td>
+                                    <td class="td-rate td-rate-primary"><span class="rate-value rate-amount" id="py-rate-amt-7d">0%</span></td>
+                                    <td class="td-detail"><span id="py-detail-amt-7d">0억 / 0억</span></td>
+                                    <td class="td-rate td-rate-secondary"><span class="rate-value" id="py-rate-cnt-7d">0%</span></td>
+                                    <td class="td-detail"><span id="py-detail-cnt-7d">0 / 0</span></td>
+                                </tr>
+                                <tr>
+                                    <td class="td-period"><span class="period-badge period-month">30일 이내</span></td>
+                                    <td class="td-rate td-rate-primary"><span class="rate-value rate-amount" id="py-rate-amt-30d">0%</span></td>
+                                    <td class="td-detail"><span id="py-detail-amt-30d">0억 / 0억</span></td>
+                                    <td class="td-rate td-rate-secondary"><span class="rate-value" id="py-rate-cnt-30d">0%</span></td>
+                                    <td class="td-detail"><span id="py-detail-cnt-30d">0 / 0</span></td>
+                                </tr>
+                                <tr>
+                                    <td class="td-period"><span class="period-badge period-2month">90일 이내</span></td>
+                                    <td class="td-rate td-rate-primary"><span class="rate-value rate-amount" id="py-rate-amt-90d">0%</span></td>
+                                    <td class="td-detail"><span id="py-detail-amt-90d">0억 / 0억</span></td>
+                                    <td class="td-rate td-rate-secondary"><span class="rate-value" id="py-rate-cnt-90d">0%</span></td>
+                                    <td class="td-detail"><span id="py-detail-cnt-90d">0 / 0</span></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- 3. 추심 이관 비율 -->
+                <div class="kpi-section">
+                    <div class="section-header">
+                        <h2 class="section-title">연간 누적 추심 이관 비율</h2>
+                    </div>
+                    <div class="kpi-grid">
+                        <div class="kpi-card">
+                            <div class="kpi-header">
+                                <h3 class="kpi-title">환급완료 대비 추심 이관</h3>
+                                <span class="kpi-badge badge-red">연간 누적</span>
+                            </div>
+                            <div class="kpi-value" id="py-collection-rate">0%</div>
+                            <div class="kpi-progress">
+                                <div class="progress-bar" id="py-collection-fill" style="width: 0%; background: var(--accent-danger);"></div>
+                            </div>
+                            <div class="kpi-breakdown">
+                                <div class="breakdown-row">
+                                    <span class="breakdown-label">환급완료</span>
+                                    <span class="breakdown-value" id="py-col-refund">₩0</span>
+                                </div>
+                                <div class="breakdown-row">
+                                    <span class="breakdown-label">추심 이관</span>
+                                    <span class="breakdown-value" id="py-col-transfer">₩0</span>
+                                </div>
+                                <div class="breakdown-row">
+                                    <span class="breakdown-label">이관 건수</span>
+                                    <span class="breakdown-value" id="py-col-transfer-count">0건</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 4. 고객 컨택률 + 30일 초과 결제 -->
+                <div class="kpi-section">
+                    <div class="section-header">
+                        <h2 class="section-title">연간 누적 고객 컨택률</h2>
+                    </div>
+                    <div class="kpi-grid">
+                        <div class="kpi-card">
+                            <div class="kpi-header">
+                                <h3 class="kpi-title">컨택률</h3>
+                                <span class="kpi-badge badge-blue">연간 누적</span>
+                            </div>
+                            <div class="kpi-value" id="py-contact-rate">0%</div>
+                            <div class="kpi-breakdown">
+                                <div class="breakdown-row">
+                                    <span class="breakdown-label">8일+ 경과 (분모)</span>
+                                    <span class="breakdown-value" id="py-contact-denom">0건 / ₩0</span>
+                                </div>
+                                <div class="breakdown-row">
+                                    <span class="breakdown-label">컨택 완료 (분자)</span>
+                                    <span class="breakdown-value" id="py-contact-numer">0건 / ₩0</span>
+                                </div>
+                            </div>
+                            <div class="kpi-formula">
+                                성사일 - 최초결제안내일 ≥ 8일 중 고객유형 값이 있는 비율
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 데이터 갱신 정보 -->
+                <div class="data-info">
+                    <span class="info-label">마지막 동기화:</span>
+                    <span class="info-value" id="py-last-sync-time">-</span>
+                    <button class="btn btn-sm btn-secondary" onclick="refreshAllData()">🔄 새로고침</button>
                 </div>
 
             </div>

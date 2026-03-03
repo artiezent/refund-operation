@@ -1599,71 +1599,126 @@ function initPerformanceSummary() {
     loadPerformanceSummary();
 }
 
-// 월 표시 업데이트 (현재 월 표시)
+// 전환파트 월 선택
+let selectedPerfMonth = new Date();
+
 function updatePerfMonthDisplay() {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth() + 1;
-    
+    const year = selectedPerfMonth.getFullYear();
+    const month = selectedPerfMonth.getMonth() + 1;
     const monthEl = document.getElementById('selected-perf-month');
-    if (monthEl) {
-        monthEl.textContent = `${year}년 ${month}월`;
-    }
+    if (monthEl) monthEl.textContent = `${year}년 ${month}월`;
 }
 
-// 성과 데이터 로드 (필터 기반 - Pipedrive 필터가 "이번 달"로 설정됨)
+function changePerfMonth(delta) {
+    selectedPerfMonth.setMonth(selectedPerfMonth.getMonth() + delta);
+    updatePerfMonthDisplay();
+    loadPerformanceSummary();
+}
+
+function savePerfToLocal(year, month, data) {
+    try {
+        const key = `perf_${year}_${month}`;
+        localStorage.setItem(key, JSON.stringify({ data, ts: Date.now() }));
+    } catch (e) {}
+}
+
+function loadPerfFromLocal(year, month) {
+    try {
+        const key = `perf_${year}_${month}`;
+        const raw = localStorage.getItem(key);
+        if (!raw) return null;
+        return JSON.parse(raw);
+    } catch (e) { return null; }
+}
+
 async function loadPerformanceSummary() {
     const loadingEl = document.getElementById('perf-loading');
     const errorEl = document.getElementById('perf-error');
     const contentEl = document.getElementById('perf-content');
     
-    // 로딩 상태 표시
+    const year = selectedPerfMonth.getFullYear();
+    const month = selectedPerfMonth.getMonth() + 1;
+    const now = new Date();
+    const isCurrentMonth = (year === now.getFullYear() && month === now.getMonth() + 1);
+    
     if (loadingEl) loadingEl.style.display = 'flex';
     if (errorEl) errorEl.style.display = 'none';
     if (contentEl) contentEl.style.display = 'none';
     
     try {
-        const url = `${PERFORMANCE_API_URL}?action=performance`;
-        console.log('성과 API 호출:', url);
+        let result;
         
-        const response = await fetch(url);
-        
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+        if (isCurrentMonth) {
+            // 현재 월: 기존 Pipedrive 필터 API 사용 (안정적)
+            const url = `${PERFORMANCE_API_URL}?action=performance`;
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            const json = await response.json();
+            if (!json.success) throw new Error('성과 데이터를 가져오는데 실패했습니다.');
+            result = json.data;
+        } else {
+            // 과거 월: 결제 데이터에서 클라이언트 계산
+            let data = await fetchSharedData();
+            // 성과 필드가 없으면 캐시 무효화 후 네트워크에서 새로 가져오기
+            const hasPerformanceFields = data.some(d => d._applyDate || d._defenseDate);
+            if (!hasPerformanceFields) {
+                console.log('성과 필드 없음 → 캐시 무효화 후 새로 가져오기');
+                sharedDataPromise = null;
+                localStorage.removeItem(LOCAL_CACHE_KEY);
+                localStorage.removeItem(LOCAL_CACHE_TS_KEY);
+                data = await fetchFromNetwork();
+                paymentDataCache = data;
+                collectionDataCache = data;
+            }
+            result = calculatePerformanceFromData(data, year, month);
         }
         
-        const result = await response.json();
-        console.log('성과 API 응답:', result);
+        updatePerformanceSummaryUI(result);
         
-        if (!result.success) {
-            throw new Error('성과 데이터를 가져오는데 실패했습니다.');
-        }
-        
-        // UI 업데이트
-        updatePerformanceSummaryUI(result.data);
-        
-        // 마지막 동기화 시간 표시
         const syncTimeEl = document.getElementById('perf-sync-time');
-        if (syncTimeEl) {
-            syncTimeEl.textContent = new Date().toLocaleString('ko-KR');
-        }
+        if (syncTimeEl) syncTimeEl.textContent = new Date().toLocaleString('ko-KR');
         
-        // 컨텐츠 표시
         if (loadingEl) loadingEl.style.display = 'none';
         if (contentEl) contentEl.style.display = 'block';
         
     } catch (error) {
         console.error('성과 데이터 로드 실패:', error);
-        
         if (loadingEl) loadingEl.style.display = 'none';
         if (errorEl) {
             errorEl.style.display = 'flex';
             const errorMsgEl = document.getElementById('perf-error-message');
-            if (errorMsgEl) {
-                errorMsgEl.textContent = error.message || '네트워크 오류가 발생했습니다.';
-            }
+            if (errorMsgEl) errorMsgEl.textContent = error.message || '데이터 로딩에 실패했습니다.';
         }
     }
+}
+
+function calculatePerformanceFromData(data, year, month) {
+    let applyCount = 0, applyAmount = 0;
+    let defenseCount = 0, defenseAmount = 0;
+    
+    data.forEach(d => {
+        const val = d._value;
+        
+        if (d._applyDate && d._hasJupjupPerson) {
+            if (d._applyDate.getFullYear() === year && d._applyDate.getMonth() + 1 === month) {
+                applyCount++;
+                applyAmount += val;
+            }
+        }
+        
+        if (d._defenseDate && d._hasDefensePerson) {
+            if (d._defenseDate.getFullYear() === year && d._defenseDate.getMonth() + 1 === month) {
+                defenseCount++;
+                defenseAmount += val;
+            }
+        }
+    });
+    
+    return {
+        apply: { count: applyCount, amount: applyAmount },
+        defense: { count: defenseCount, amount: defenseAmount },
+        total: applyAmount + defenseAmount
+    };
 }
 
 // 성과 요약 UI 업데이트
@@ -2060,26 +2115,99 @@ const PAYMENT_API_URL = PERFORMANCE_API_URL;
 
 // 결제+추심 공용 데이터 캐시 (같은 API에서 가져오므로 공유)
 let sharedDataPromise = null;
+const LOCAL_CACHE_KEY = 'kpi_payment_data';
+const LOCAL_CACHE_TS_KEY = 'kpi_payment_data_ts';
+const LOCAL_CACHE_TTL = 10 * 60 * 1000; // 10분
+
+function preprocessData(data) {
+    const DAY_MS = 86400000;
+    return data.map(deal => {
+        const d = Object.assign({}, deal);
+        d._value = Number(deal.value) || 0;
+        d._noticeDate = deal.first_payment_notice ? parseToKST(deal.first_payment_notice) : null;
+        d._wonDate = (deal.won_time && deal.won_time !== '') ? parseToKST(deal.won_time) : null;
+        d._collectionDate = (deal.collection_order_date && deal.collection_order_date !== '') ? parseToKST(deal.collection_order_date) : null;
+        d._hasWon = !!d._wonDate;
+        d._hasCustomerType = !!(deal.customer_type && deal.customer_type.toString().trim() !== '');
+        d._applyDate = (deal.apply_date && deal.apply_date !== '') ? parseToKST(deal.apply_date) : null;
+        d._hasJupjupPerson = !!(deal.jupjup_person && deal.jupjup_person.toString().trim() !== '');
+        d._defenseDate = (deal.defense_date && deal.defense_date !== '') ? parseToKST(deal.defense_date) : null;
+        d._hasDefensePerson = !!(deal.defense_person && deal.defense_person.toString().trim() !== '');
+        if (d._noticeDate && d._wonDate) {
+            const s = new Date(d._noticeDate.getFullYear(), d._noticeDate.getMonth(), d._noticeDate.getDate());
+            const e = new Date(d._wonDate.getFullYear(), d._wonDate.getMonth(), d._wonDate.getDate());
+            d._daysDiff = Math.floor((e - s) / DAY_MS);
+        } else {
+            d._daysDiff = null;
+        }
+        return d;
+    });
+}
+
+function saveToLocalCache(rawData) {
+    try {
+        localStorage.setItem(LOCAL_CACHE_KEY, JSON.stringify(rawData));
+        localStorage.setItem(LOCAL_CACHE_TS_KEY, Date.now().toString());
+    } catch (e) { /* quota exceeded - skip */ }
+}
+
+function loadFromLocalCache() {
+    try {
+        const ts = localStorage.getItem(LOCAL_CACHE_TS_KEY);
+        const raw = localStorage.getItem(LOCAL_CACHE_KEY);
+        if (!ts || !raw) return null;
+        return { data: JSON.parse(raw), age: Date.now() - parseInt(ts) };
+    } catch (e) { return null; }
+}
+
+async function fetchFromNetwork() {
+    const maxRetries = 2;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            const response = await fetch(PAYMENT_API_URL);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const result = await response.json();
+            if (!result.success) throw new Error('API 실패');
+            saveToLocalCache(result.data);
+            return preprocessData(result.data);
+        } catch (e) {
+            console.warn(`네트워크 시도 ${attempt}/${maxRetries} 실패:`, e.message);
+            if (attempt === maxRetries) throw e;
+            await new Promise(r => setTimeout(r, 1000));
+        }
+    }
+}
+
 async function fetchSharedData() {
     if (!sharedDataPromise) {
         sharedDataPromise = (async () => {
-            const maxRetries = 3;
-            for (let attempt = 1; attempt <= maxRetries; attempt++) {
-                try {
-                    const response = await fetch(PAYMENT_API_URL);
-                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                    const result = await response.json();
-                    if (!result.success) throw new Error('API 실패');
-                    return result.data;
-                } catch (e) {
-                    console.warn(`데이터 로드 시도 ${attempt}/${maxRetries} 실패:`, e.message);
-                    if (attempt === maxRetries) {
-                        sharedDataPromise = null;
-                        throw e;
+            // 1. 로컬 캐시가 있고 10분 이내면 즉시 반환 + 백그라운드 갱신
+            const cached = loadFromLocalCache();
+            if (cached && cached.age < LOCAL_CACHE_TTL) {
+                // 백그라운드에서 네트워크 갱신 (결과를 기다리지 않음)
+                fetchFromNetwork().then(freshData => {
+                    if (freshData) {
+                        paymentDataCache = freshData;
+                        collectionDataCache = freshData;
+                        pyDataLoaded = false;
                     }
-                    await new Promise(r => setTimeout(r, 1000 * attempt));
-                }
+                }).catch(() => {});
+                return preprocessData(cached.data);
             }
+            // 2. 캐시가 오래됐거나 없으면 네트워크 요청
+            // 단, 오래된 캐시가 있으면 일단 그걸 먼저 반환
+            if (cached) {
+                fetchFromNetwork().then(freshData => {
+                    if (freshData) {
+                        paymentDataCache = freshData;
+                        collectionDataCache = freshData;
+                        pyDataLoaded = false;
+                    }
+                }).catch(() => {});
+                return preprocessData(cached.data);
+            }
+            // 3. 캐시 없음 → 네트워크 필수 대기
+            return await fetchFromNetwork();
         })();
     }
     return sharedDataPromise;
@@ -2176,18 +2304,47 @@ function getWeekEnd(weekStart) {
 
 // 결제파트 탭 초기화
 function initPaymentTab() {
-    // 탭 클릭 시 데이터 로드
     const paymentTabBtn = document.querySelector('[data-tab="payment"]');
     if (paymentTabBtn) {
         paymentTabBtn.addEventListener('click', () => {
-            if (!paymentDataCache) {
-                loadPaymentData();
-            }
+            if (!paymentDataCache) loadPaymentData();
         });
     }
     
-    // 주차 표시 업데이트
     updateWeekDisplay();
+    loadPaymentTarget();
+
+    // 페이지 로드 시 백그라운드 프리페치
+    prefetchData();
+}
+
+async function prefetchData() {
+    try {
+        const data = await fetchSharedData();
+        paymentDataCache = data;
+        collectionDataCache = data;
+    } catch (e) {
+        console.warn('프리페치 실패:', e.message);
+    }
+}
+
+async function refreshAllData() {
+    sharedDataPromise = null;
+    paymentDataCache = null;
+    collectionDataCache = null;
+    pyDataLoaded = false;
+    localStorage.removeItem(LOCAL_CACHE_KEY);
+    localStorage.removeItem(LOCAL_CACHE_TS_KEY);
+
+    const activeTab = document.querySelector('.tab-btn.active')?.dataset.tab;
+    if (activeTab === 'payment') loadPaymentData();
+    else if (activeTab === 'collection') loadCollectionData();
+    else if (activeTab === 'payment-yearly') loadPaymentYearlyData();
+    else {
+        showToast('데이터를 새로 가져오는 중...');
+        await prefetchData();
+        showToast('새로고침 완료!');
+    }
 }
 
 // 주차 표시 업데이트
@@ -2286,33 +2443,96 @@ function updatePaymentMonthDisplay() {
 // 월별 결제금액 계산 및 표시
 function calculateAndDisplayMonthlyPayment(data) {
     const year = selectedPaymentMonth.getFullYear();
-    const month = selectedPaymentMonth.getMonth(); // 0-based
+    const month = selectedPaymentMonth.getMonth();
     
-    // 성사일자(won_time)가 해당 월에 속하는 거래 필터링
-    const monthlyDeals = data.filter(deal => {
-        if (!deal.won_time || deal.won_time === '') return false;
-        
-        const wonDate = parseToKST(deal.won_time);
-        if (!wonDate) return false;
-        
-        return wonDate.getFullYear() === year && wonDate.getMonth() === month;
-    });
-    
-    // 총 결제금액 및 건수 계산
-    const totalAmount = monthlyDeals.reduce((sum, deal) => {
-        const amount = parseInt(deal.value) || 0;
-        return sum + amount;
-    }, 0);
-    
+    const refundDeals = data.filter(d => d._noticeDate && d._noticeDate.getFullYear() === year && d._noticeDate.getMonth() === month);
+    const refundAmount = refundDeals.reduce((s, d) => s + d._value, 0);
+    const refundCount = refundDeals.length;
+
+    document.getElementById('monthly-refund-amount').textContent = '₩' + formatNumber(refundAmount);
+    document.getElementById('monthly-refund-count').textContent = refundCount + '건';
+    const refundTitleEl = document.getElementById('monthly-refund-title');
+    if (refundTitleEl) refundTitleEl.textContent = `${month + 1}월 환급완료`;
+
+    const monthlyDeals = data.filter(d => d._wonDate && d._wonDate.getFullYear() === year && d._wonDate.getMonth() === month);
+    const totalAmount = monthlyDeals.reduce((s, d) => s + d._value, 0);
     const totalCount = monthlyDeals.length;
     
-    // UI 업데이트
     document.getElementById('monthly-payment-amount').textContent = '₩' + formatNumber(totalAmount);
     document.getElementById('monthly-payment-count').textContent = totalCount + '건';
     
-    console.log(`=== ${year}년 ${month + 1}월 결제금액 ===`);
-    console.log(`결제 건수: ${totalCount}건`);
-    console.log(`결제 금액: ₩${formatNumber(totalAmount)}`);
+    updatePaymentProgress(totalAmount);
+    
+    console.log(`=== ${year}년 ${month + 1}월 ===`);
+    console.log(`환급완료: ${refundCount}건, ₩${formatNumber(refundAmount)}`);
+    console.log(`결제금액: ${totalCount}건, ₩${formatNumber(totalAmount)}`);
+
+    // 월간 고객 컨택률
+    calculateContactRate(refundDeals, 'monthly');
+    // 월간 30일 초과 결제 (성사일 기준)
+    calculateOver30dPayment(data, 'monthly', year, month);
+}
+
+function savePaymentTarget() {
+    const input = document.getElementById('payment-target-input');
+    const value = input.value.trim();
+    const target = parseTargetInput(value);
+    localStorage.setItem('payment_target_amount', target.toString());
+
+    const totalText = document.getElementById('monthly-payment-amount').textContent;
+    const totalAmount = parseNumber(totalText.replace(/[₩,]/g, ''));
+    updatePaymentProgress(totalAmount);
+
+    if (target > 0) {
+        showToast('결제 목표금액이 저장되었습니다!');
+    }
+}
+
+function loadPaymentTarget() {
+    const saved = localStorage.getItem('payment_target_amount');
+    if (saved) {
+        const amount = parseInt(saved);
+        const input = document.getElementById('payment-target-input');
+        if (input && amount > 0) {
+            const eok = amount / 100000000;
+            if (eok >= 1) {
+                input.value = eok % 1 === 0 ? `${eok}억` : `${eok.toFixed(1)}억`;
+            } else {
+                const man = amount / 10000;
+                input.value = man >= 1 ? `${Math.round(man)}만` : formatNumber(amount);
+            }
+        }
+        return amount;
+    }
+    return 0;
+}
+
+function updatePaymentProgress(totalAmount) {
+    const target = loadPaymentTarget();
+
+    const displayEl = document.getElementById('payment-target-display');
+    if (displayEl) {
+        if (target > 0) {
+            const eok = target / 100000000;
+            displayEl.textContent = eok >= 1 ? `₩${eok % 1 === 0 ? eok : eok.toFixed(1)}억` : '₩' + formatNumber(target);
+        } else {
+            displayEl.textContent = '미설정';
+        }
+    }
+
+    const rate = target > 0 ? (totalAmount / target) * 100 : 0;
+
+    const rateEl = document.getElementById('payment-progress-rate');
+    if (rateEl) {
+        rateEl.textContent = rate.toFixed(1) + '%';
+        rateEl.style.color = '';
+        if (rate >= 100) rateEl.style.color = 'var(--accent-success)';
+        else if (rate >= 80) rateEl.style.color = 'var(--accent-primary)';
+        else if (rate > 0) rateEl.style.color = 'var(--accent-danger)';
+    }
+
+    const fillEl = document.getElementById('payment-progress-fill');
+    if (fillEl) fillEl.style.width = Math.min(rate, 100) + '%';
 }
 
 // 디버그: 특정 고객 검색 (콘솔에서 searchCustomer('이름') 으로 사용)
@@ -2334,20 +2554,16 @@ window.searchCustomer = function(keyword) {
     
     console.log(`=== '${keyword}' 검색 결과 (${results.length}건) ===`);
     results.forEach(deal => {
-        const wonDateRaw = deal.won_time || '(없음)';
-        const wonDateKST = deal.won_time ? parseToKST(deal.won_time) : null;
-        const wonDateKSTStr = wonDateKST ? wonDateKST.toLocaleString('ko-KR') : '(없음)';
-        
+        const wonDateKSTStr = deal._wonDate ? deal._wonDate.toLocaleString('ko-KR') : '(없음)';
         console.log('---');
         console.log(`ID: ${deal.id}`);
         console.log(`고객명: ${deal.person_name || deal.title}`);
-        console.log(`금액: ${deal.value}`);
-        console.log(`성사일(원본): ${wonDateRaw}`);
+        console.log(`금액: ${deal._value}`);
+        console.log(`성사일(원본): ${deal.won_time || '(없음)'}`);
         console.log(`성사일(KST): ${wonDateKSTStr}`);
         console.log(`최초결제안내일: ${deal.first_payment_notice || '(없음)'}`);
-        
-        if (wonDateKST) {
-            console.log(`→ KST 기준 월: ${wonDateKST.getFullYear()}년 ${wonDateKST.getMonth() + 1}월`);
+        if (deal._wonDate) {
+            console.log(`→ KST 기준 월: ${deal._wonDate.getFullYear()}년 ${deal._wonDate.getMonth() + 1}월`);
         }
     });
     
@@ -2365,14 +2581,7 @@ function downloadMonthlyRawData() {
     const month = selectedPaymentMonth.getMonth(); // 0-based
     
     // 성사일자(won_time)가 해당 월에 속하는 거래 필터링
-    const monthlyDeals = paymentDataCache.filter(deal => {
-        if (!deal.won_time || deal.won_time === '') return false;
-        
-        const wonDate = parseToKST(deal.won_time);
-        if (!wonDate) return false;
-        
-        return wonDate.getFullYear() === year && wonDate.getMonth() === month;
-    });
+    const monthlyDeals = paymentDataCache.filter(d => d._wonDate && d._wonDate.getFullYear() === year && d._wonDate.getMonth() === month);
     
     if (monthlyDeals.length === 0) {
         showToast('해당 월에 데이터가 없습니다.', 'error');
@@ -2390,19 +2599,14 @@ function downloadMonthlyRawData() {
     ];
     
     // CSV 데이터 생성
-    const rows = monthlyDeals.map(deal => {
-        const wonDateKST = parseToKST(deal.won_time);
-        const noticeDate = deal.first_payment_notice ? parseToKST(deal.first_payment_notice) : null;
-        
-        return [
-            deal.id || '',
-            deal.person_name || deal.title || '',
-            deal.value || 0,
-            deal.won_time || '',  // 원본 값
-            wonDateKST ? formatDateForCSV(wonDateKST) : '',  // KST 변환값
-            noticeDate ? formatDateForCSV(noticeDate) : ''
-        ];
-    });
+    const rows = monthlyDeals.map(deal => [
+        deal.id || '',
+        deal.person_name || deal.title || '',
+        deal._value,
+        deal.won_time || '',
+        deal._wonDate ? formatDateForCSV(deal._wonDate) : '',
+        deal._noticeDate ? formatDateForCSV(deal._noticeDate) : ''
+    ]);
     
     // CSV 문자열 생성
     const BOM = '\uFEFF';
@@ -2442,16 +2646,11 @@ function calculateAndDisplayWeeklyKPIs(data) {
     console.log(`=== 주차별 KPI 계산 ===`);
     console.log(`기간: ${weekStart.toLocaleDateString()} ~ ${weekEnd.toLocaleDateString()}`);
     
-    // 1. 환급 완료 (해당 기간 내 '최초결제안내일' 기준) - KST 적용
-    const refundDeals = data.filter(deal => {
-        if (!deal.first_payment_notice) return false;
-        const noticeDate = parseToKST(deal.first_payment_notice);
-        if (!noticeDate) return false;
-        return noticeDate >= weekStart && noticeDate <= weekEnd;
-    });
+    // 1. 환급 완료 (해당 기간 내 '최초결제안내일' 기준)
+    const refundDeals = data.filter(d => d._noticeDate && d._noticeDate >= weekStart && d._noticeDate <= weekEnd);
     
     const refundCount = refundDeals.length;
-    const refundAmount = refundDeals.reduce((sum, deal) => sum + (deal.value || 0), 0);
+    const refundAmount = refundDeals.reduce((s, d) => s + d._value, 0);
     
     // 환급 완료 UI 업데이트
     document.getElementById('weekly-refund-count').textContent = formatNumber(refundCount) + '건';
@@ -2459,15 +2658,11 @@ function calculateAndDisplayWeeklyKPIs(data) {
     
     console.log(`환급 완료: ${refundCount}건, ₩${formatNumber(refundAmount)}`);
     
-    // 2. 당일 결제 (최초결제안내일 = 성사일) - KST 적용
-    const sameDayDeals = refundDeals.filter(deal => {
-        if (!deal.won_time || deal.won_time === '') return false;
-        // KST 기준 같은 날 비교
-        return isSameDateKST(deal.first_payment_notice, deal.won_time);
-    });
+    // 2. 당일 결제 (최초결제안내일 = 성사일)
+    const sameDayDeals = refundDeals.filter(d => d._hasWon && d._daysDiff === 0);
     
     const sameDayCount = sameDayDeals.length;
-    const sameDayAmount = sameDayDeals.reduce((sum, deal) => sum + (deal.value || 0), 0);
+    const sameDayAmount = sameDayDeals.reduce((s, d) => s + d._value, 0);
     const sameDayCountRate = refundCount > 0 ? (sameDayCount / refundCount) * 100 : 0;
     
     // 당일 결제 UI 업데이트
@@ -2477,16 +2672,11 @@ function calculateAndDisplayWeeklyKPIs(data) {
     
     console.log(`당일 결제: ${sameDayCount}건, ₩${formatNumber(sameDayAmount)}, ${sameDayCountRate.toFixed(1)}%`);
     
-    // 3. 30일이내 결제 (안내일부터 30일째까지 = daysDiff <= 29) - KST 적용
-    const within30dDeals = refundDeals.filter(deal => {
-        if (!deal.won_time || deal.won_time === '') return false;
-        const daysDiff = getDaysDiffKST(deal.first_payment_notice, deal.won_time);
-        if (daysDiff === null) return false;
-        return daysDiff >= 0 && daysDiff <= 29;
-    });
+    // 3. 30일이내 결제
+    const within30dDeals = refundDeals.filter(d => d._hasWon && d._daysDiff !== null && d._daysDiff >= 0 && d._daysDiff <= 29);
     
     const within30dCount = within30dDeals.length;
-    const within30dAmount = within30dDeals.reduce((sum, deal) => sum + (deal.value || 0), 0);
+    const within30dAmount = within30dDeals.reduce((s, d) => s + d._value, 0);
     const within30dCountRate = refundCount > 0 ? (within30dCount / refundCount) * 100 : 0;
     
     // 30일이내 결제 UI 업데이트
@@ -2507,8 +2697,7 @@ function calculateAndDisplayWeeklyKPIs(data) {
         paymentPeriodDeals[days] = result.convertedDeals;
     });
 
-    // 미결제 거래 (환급 완료 중 아직 결제 안된 것)
-    const unpaidDeals = refundDeals.filter(d => !d.won_time || d.won_time === '');
+    const unpaidDeals = refundDeals.filter(d => !d._hasWon);
     paymentPeriodDeals['unpaid'] = unpaidDeals;
 
     // 행 클릭 이벤트 바인딩
@@ -2531,26 +2720,82 @@ function calculateAndDisplayWeeklyKPIs(data) {
             showPaymentDetail(deals, `${weekLabel} 환급 → ${periodLabelsMap[days]} 결제`);
         });
     });
+
+}
+
+// 고객 컨택률 계산 (8일 이상인 것 중 고객유형 필드 있는 비율)
+// prefix: 'weekly' (결제파트 대시보드) 또는 'py' (결제파트 누적)
+function calculateContactRate(refundDeals, prefix) {
+    const now = Date.now();
+    const DAY_MS = 86400000;
+    const over8dayDeals = refundDeals.filter(d => {
+        if (!d._noticeDate) return false;
+        if (d._noticeDate.getFullYear() < 2026) return false;
+        if (d._hasWon && d._daysDiff !== null) return d._daysDiff >= 8;
+        return Math.floor((now - d._noticeDate.getTime()) / DAY_MS) >= 8;
+    });
+
+    const denomCount = over8dayDeals.length;
+    const denomAmount = over8dayDeals.reduce((s, d) => s + d._value, 0);
+
+    const contactedDeals = over8dayDeals.filter(d => d._hasCustomerType);
+    const numerCount = contactedDeals.length;
+    const numerAmount = contactedDeals.reduce((s, d) => s + d._value, 0);
+
+    const rate = denomCount > 0 ? (numerCount / denomCount * 100) : 0;
+
+    const rateEl = document.getElementById(`${prefix}-contact-rate`);
+    if (rateEl) rateEl.textContent = rate.toFixed(1) + '%';
+
+    const fmtEok = v => (v / 100000000).toFixed(2) + '억';
+
+    const denomEl = document.getElementById(`${prefix}-contact-denom`);
+    if (denomEl) denomEl.textContent = `${formatNumber(denomCount)}건 / ${fmtEok(denomAmount)}`;
+
+    const numerEl = document.getElementById(`${prefix}-contact-numer`);
+    if (numerEl) numerEl.textContent = `${formatNumber(numerCount)}건 / ${fmtEok(numerAmount)}`;
+}
+
+// 30일 초과 결제 계산 (성사일 기준 필터)
+function calculateOver30dPayment(data, prefix, yearFilter, monthFilter) {
+    const over30dDeals = data.filter(d => {
+        if (!d._hasWon || !d._wonDate || d._daysDiff === null) return false;
+        if (d._wonDate.getFullYear() !== yearFilter) return false;
+        if (monthFilter !== undefined && d._wonDate.getMonth() !== monthFilter) return false;
+        return d._daysDiff > 30;
+    });
+    const over30dCount = over30dDeals.length;
+    const over30dAmount = over30dDeals.reduce((s, d) => s + d._value, 0);
+
+    // 같은 기간 성사 총액 (비율 계산용)
+    const periodPaidDeals = data.filter(d => {
+        if (!d._hasWon || !d._wonDate) return false;
+        if (d._wonDate.getFullYear() !== yearFilter) return false;
+        if (monthFilter !== undefined && d._wonDate.getMonth() !== monthFilter) return false;
+        return true;
+    });
+    const periodPaidTotal = periodPaidDeals.reduce((s, d) => s + d._value, 0);
+    const ratio = periodPaidTotal > 0 ? (over30dAmount / periodPaidTotal * 100) : 0;
+
+    const amtEl = document.getElementById(`${prefix}-over30d-amount`);
+    if (amtEl) amtEl.textContent = '₩' + formatNumber(over30dAmount);
+    const cntEl = document.getElementById(`${prefix}-over30d-count`);
+    if (cntEl) cntEl.textContent = over30dCount + '건';
+    const ratioEl = document.getElementById(`${prefix}-over30d-ratio`);
+    if (ratioEl) ratioEl.textContent = ratio.toFixed(1) + '%';
 }
 
 // 주차별 전환율 계산 (KST 적용)
 // N일이내 = 안내일(1일째)부터 N일째까지
 // 예: 01-01 안내 → 01-03 성사 = 3일째 = 3일이내에 포함
 function calculateWeeklyConversionRate(refundDeals, targetDays) {
-    const convertedDeals = refundDeals.filter(deal => {
-        if (!deal.won_time || deal.won_time === '') return false;
-        const daysDiff = getDaysDiffKST(deal.first_payment_notice, deal.won_time);
-        if (daysDiff === null) return false;
-        
-        if (targetDays === 0) {
-            return daysDiff === 0;
-        } else {
-            return daysDiff >= 0 && daysDiff <= targetDays - 1;
-        }
+    const convertedDeals = refundDeals.filter(d => {
+        if (!d._hasWon || d._daysDiff === null) return false;
+        return targetDays === 0 ? d._daysDiff === 0 : (d._daysDiff >= 0 && d._daysDiff <= targetDays - 1);
     });
     
     const convertedCount = convertedDeals.length;
-    const convertedAmount = convertedDeals.reduce((sum, deal) => sum + (deal.value || 0), 0);
+    const convertedAmount = convertedDeals.reduce((s, d) => s + d._value, 0);
     
     return {
         convertedCount,
@@ -2633,25 +2878,19 @@ function showPaymentDetail(deals, label) {
     const tbodyEl = document.getElementById('payment-detail-tbody');
     if (!panel || !titleEl || !tbodyEl) return;
 
-    const totalAmt = deals.reduce((s, d) => s + (parseInt(d.value) || 0), 0);
+    const totalAmt = deals.reduce((s, d) => s + d._value, 0);
     titleEl.textContent = `${label} — ${deals.length}건, ₩${totalAmt.toLocaleString()}`;
 
-    const sorted = [...deals].sort((a, b) => (parseInt(b.value) || 0) - (parseInt(a.value) || 0));
+    const sorted = [...deals].sort((a, b) => b._value - a._value);
 
     tbodyEl.innerHTML = sorted.map((d, i) => {
-        const val = parseInt(d.value) || 0;
-        const noticeDate = d.first_payment_notice || '-';
-        const wonDate = d.won_time || '미결제';
-        const daysDiff = (d.won_time && d.first_payment_notice)
-            ? getDaysDiffKST(d.first_payment_notice, d.won_time)
-            : null;
-        const daysLabel = daysDiff !== null ? `${daysDiff}일` : '-';
+        const daysLabel = d._daysDiff !== null ? `${d._daysDiff}일` : '-';
         return `<tr>
             <td>${i + 1}</td>
             <td>${d.title || '-'}</td>
-            <td class="td-amount">₩${val.toLocaleString()}</td>
-            <td>${noticeDate}</td>
-            <td>${wonDate}</td>
+            <td class="td-amount">₩${d._value.toLocaleString()}</td>
+            <td>${d.first_payment_notice || '-'}</td>
+            <td>${d.won_time || '미결제'}</td>
             <td>${daysLabel}</td>
         </tr>`;
     }).join('');
@@ -2693,12 +2932,7 @@ function downloadWeeklyRawData() {
     const weekEnd = getWeekEnd(weekStart);
     
     // 해당 주차의 결제 안내 데이터 필터링 (KST 적용)
-    const weeklyDeals = paymentDataCache.filter(deal => {
-        if (!deal.first_payment_notice) return false;
-        const noticeDate = parseToKST(deal.first_payment_notice);
-        if (!noticeDate) return false;
-        return noticeDate >= weekStart && noticeDate <= weekEnd;
-    });
+    const weeklyDeals = paymentDataCache.filter(d => d._noticeDate && d._noticeDate >= weekStart && d._noticeDate <= weekEnd);
     
     if (weeklyDeals.length === 0) {
         showToast('해당 주차에 데이터가 없습니다.', 'error');
@@ -2724,33 +2958,22 @@ function downloadWeeklyRawData() {
     
     // CSV 데이터 생성 (KST 적용)
     const rows = weeklyDeals.map(deal => {
-        const noticeDate = parseToKST(deal.first_payment_notice);
-        const wonDate = deal.won_time ? parseToKST(deal.won_time) : null;
-        const daysDiff = getDaysDiffKST(deal.first_payment_notice, deal.won_time);
-        const isPaid = wonDate !== null && deal.won_time;
-        
-        // 기간별 포함 여부 계산
-        const isSameDay = isPaid && daysDiff === 0;
-        const isWithin3d = isPaid && daysDiff >= 0 && daysDiff <= 2;
-        const isWithin7d = isPaid && daysDiff >= 0 && daysDiff <= 6;
-        const isWithin21d = isPaid && daysDiff >= 0 && daysDiff <= 20;
-        const isWithin30d = isPaid && daysDiff >= 0 && daysDiff <= 29;
-        const isWithin60d = isPaid && daysDiff >= 0 && daysDiff <= 59;
-        
+        const dd = deal._daysDiff;
+        const isPaid = deal._hasWon;
         return [
             deal.id || '',
             deal.person_name || deal.title || '',
-            deal.value || 0,
-            formatDateForCSV(noticeDate),
-            wonDate ? formatDateForCSV(wonDate) : '',
-            daysDiff !== null ? daysDiff : '',
+            deal._value,
+            deal._noticeDate ? formatDateForCSV(deal._noticeDate) : '',
+            deal._wonDate ? formatDateForCSV(deal._wonDate) : '',
+            dd !== null ? dd : '',
             isPaid ? 'Y' : 'N',
-            isSameDay ? 'Y' : 'N',
-            isWithin3d ? 'Y' : 'N',
-            isWithin7d ? 'Y' : 'N',
-            isWithin21d ? 'Y' : 'N',
-            isWithin30d ? 'Y' : 'N',
-            isWithin60d ? 'Y' : 'N'
+            isPaid && dd === 0 ? 'Y' : 'N',
+            isPaid && dd >= 0 && dd <= 2 ? 'Y' : 'N',
+            isPaid && dd >= 0 && dd <= 6 ? 'Y' : 'N',
+            isPaid && dd >= 0 && dd <= 20 ? 'Y' : 'N',
+            isPaid && dd >= 0 && dd <= 29 ? 'Y' : 'N',
+            isPaid && dd >= 0 && dd <= 59 ? 'Y' : 'N'
         ];
     });
     
@@ -2895,25 +3118,13 @@ function calculateAndDisplayCollectionKPIs(data) {
     console.log(`환급완료 기준: ${prevYear}년 ${prevMonth + 1}월 first_payment_notice`);
     console.log(`이관총액 기준: ${year}년 ${month + 1}월 collection_order_date`);
 
-    const refundDeals = data.filter(deal => {
-        if (!deal.first_payment_notice) return false;
-        const d = parseToKST(deal.first_payment_notice);
-        if (!d) return false;
-        return d.getFullYear() === prevYear && d.getMonth() === prevMonth;
-    });
-
+    const refundDeals = data.filter(d => d._noticeDate && d._noticeDate.getFullYear() === prevYear && d._noticeDate.getMonth() === prevMonth);
     const refundCount = refundDeals.length;
-    const refundAmount = refundDeals.reduce((sum, deal) => sum + (parseInt(deal.value) || 0), 0);
+    const refundAmount = refundDeals.reduce((s, d) => s + d._value, 0);
 
-    const transferDeals = data.filter(deal => {
-        if (!deal.collection_order_date || deal.collection_order_date === '') return false;
-        const d = parseToKST(deal.collection_order_date);
-        if (!d) return false;
-        return d.getFullYear() === year && d.getMonth() === month;
-    });
-
+    const transferDeals = data.filter(d => d._collectionDate && d._collectionDate.getFullYear() === year && d._collectionDate.getMonth() === month);
     const transferCount = transferDeals.length;
-    const transferAmount = transferDeals.reduce((sum, deal) => sum + (parseInt(deal.value) || 0), 0);
+    const transferAmount = transferDeals.reduce((s, d) => s + d._value, 0);
 
     const ratio = refundAmount > 0 ? (transferAmount / refundAmount) * 100 : 0;
 
@@ -2953,21 +3164,11 @@ function calculateYearlyCollectionTracking(data) {
         let prevYear = year;
         let prevMonth = m - 1;
         if (prevMonth < 0) { prevMonth = 11; prevYear--; }
-        const refundAmount = data.filter(deal => {
-            if (!deal.first_payment_notice) return false;
-            const d = parseToKST(deal.first_payment_notice);
-            return d && d.getFullYear() === prevYear && d.getMonth() === prevMonth;
-        }).reduce((s, d) => s + (parseInt(d.value) || 0), 0);
+        const refundAmount = data.filter(d => d._noticeDate && d._noticeDate.getFullYear() === prevYear && d._noticeDate.getMonth() === prevMonth).reduce((s, d) => s + d._value, 0);
 
-        const transferDeals = data.filter(deal => {
-            if (!deal.collection_order_date || deal.collection_order_date === '') return false;
-            const d = parseToKST(deal.collection_order_date);
-            if (!d) return false;
-            return d.getFullYear() === year && d.getMonth() === m;
-        });
-
+        const transferDeals = data.filter(d => d._collectionDate && d._collectionDate.getFullYear() === year && d._collectionDate.getMonth() === m);
         const totalCount = transferDeals.length;
-        const totalAmount = transferDeals.reduce((s, d) => s + (parseInt(d.value) || 0), 0);
+        const totalAmount = transferDeals.reduce((s, d) => s + d._value, 0);
 
         if (totalCount === 0) {
             rows += `<tr class="yt-row">
@@ -2985,14 +3186,12 @@ function calculateYearlyCollectionTracking(data) {
         buckets.unpaid = [];
 
         transferDeals.forEach(deal => {
-            if (!deal.won_time || deal.won_time === '') {
+            if (!deal._hasWon) {
                 buckets.unpaid.push(deal);
                 return;
             }
-            const orderDate = parseToKST(deal.collection_order_date);
-            const wonDate = parseToKST(deal.won_time);
-            if (!orderDate || !wonDate) { buckets.unpaid.push(deal); return; }
-            const md = (wonDate.getFullYear() - orderDate.getFullYear()) * 12 + (wonDate.getMonth() - orderDate.getMonth());
+            if (!deal._collectionDate || !deal._wonDate) { buckets.unpaid.push(deal); return; }
+            const md = (deal._wonDate.getFullYear() - deal._collectionDate.getFullYear()) * 12 + (deal._wonDate.getMonth() - deal._collectionDate.getMonth());
             if (md >= MONTH_BUCKETS) {
                 buckets.over.push(deal);
             } else {
@@ -3007,13 +3206,13 @@ function calculateYearlyCollectionTracking(data) {
 
         function cellHtml(bucket, isUnpaid, clickKey) {
             const cnt = bucket.length;
-            const amt = bucket.reduce((s, d) => s + (parseInt(d.value) || 0), 0);
+            const amt = bucket.reduce((s, d) => s + d._value, 0);
             const amtEok = amt / 100000000;
             const amtFull = '₩' + amt.toLocaleString();
             const clickAttr = cnt > 0 ? ` data-click="${clickKey}"` : '';
 
             if (cnt === 0) {
-                return `<td class="yt-cell-rate"><div class="yt-rate-main" style="color:var(--text-secondary);font-size:11px;opacity:0.4;">-</div></td>`;
+                return `<td class="yt-cell-rate" data-amt="0" data-cnt="0"><div class="yt-rate-main" style="color:var(--text-secondary);font-size:11px;opacity:0.4;">-</div></td>`;
             }
 
             let amtDisplay;
@@ -3033,7 +3232,7 @@ function calculateYearlyCollectionTracking(data) {
                 else if (amt > 0) colorClass = 'yt-low';
             }
 
-            return `<td class="yt-cell-rate ${colorClass}" data-tip="${amtFull}"${clickAttr}>
+            return `<td class="yt-cell-rate ${colorClass}" data-tip="${amtFull}" data-amt="${amt}" data-cnt="${cnt}"${clickAttr}>
                 <div class="yt-rate-main">${amtDisplay}</div>
                 <div class="yt-rate-detail">${cnt}건</div>
             </td>`;
@@ -3044,8 +3243,8 @@ function calculateYearlyCollectionTracking(data) {
             monthCells += cellHtml(buckets[i], false, `${m}-${i}`);
         }
 
-        const paidDeals = transferDeals.filter(d => d.won_time && d.won_time !== '');
-        const paidAmount = paidDeals.reduce((s, d) => s + (parseInt(d.value) || 0), 0);
+        const paidDeals = transferDeals.filter(d => d._hasWon);
+        const paidAmount = paidDeals.reduce((s, d) => s + d._value, 0);
         const paidEok = paidAmount / 100000000;
         const paidDisplay = paidEok >= 1 ? paidEok.toFixed(1) + '억' : Math.round(paidAmount / 10000).toLocaleString() + '만';
         const paidRate = totalAmount > 0 ? (paidAmount / totalAmount * 100).toFixed(0) : 0;
@@ -3061,8 +3260,8 @@ function calculateYearlyCollectionTracking(data) {
 
         rows += `<tr class="yt-row">
             <td class="yt-cell-month">${m + 1}월</td>
-            <td class="yt-cell-num yt-sticky-transfer" style="left:48px;" data-tip="₩${totalAmount.toLocaleString()}"${transferClickAttr}><div class="yt-rate-main" style="font-size:12px;white-space:nowrap;">${totalEok}억 (${refundAmount > 0 ? (totalAmount / refundAmount * 100).toFixed(0) : 0}%)</div><div class="yt-rate-detail">${totalCount}건</div></td>
-            <td class="yt-cell-num yt-sticky-paid ${paidColorCls}" style="left:148px;font-weight:700;" data-tip="₩${paidAmount.toLocaleString()}"${paidClickAttr}><div class="yt-rate-main" style="font-size:12px;white-space:nowrap;">${paidAmount > 0 ? paidDisplay : '-'}</div><div class="yt-rate-detail">${paidDeals.length}건 (${paidRate}%)</div></td>
+            <td class="yt-cell-num yt-sticky-transfer" style="left:48px;" data-tip="₩${totalAmount.toLocaleString()}" data-amt="${totalAmount}" data-cnt="${totalCount}"${transferClickAttr}><div class="yt-rate-main" style="font-size:12px;white-space:nowrap;">${totalEok}억 (${refundAmount > 0 ? (totalAmount / refundAmount * 100).toFixed(0) : 0}%)</div><div class="yt-rate-detail">${totalCount}건</div></td>
+            <td class="yt-cell-num yt-sticky-paid ${paidColorCls}" style="left:148px;font-weight:700;" data-tip="₩${paidAmount.toLocaleString()}" data-amt="${paidAmount}" data-cnt="${paidDeals.length}"${paidClickAttr}><div class="yt-rate-main" style="font-size:12px;white-space:nowrap;">${paidAmount > 0 ? paidDisplay : '-'}</div><div class="yt-rate-detail">${paidDeals.length}건 (${paidRate}%)</div></td>
             ${monthCells}
             ${cellHtml(buckets.over, false, `${m}-over`)}
             ${cellHtml(buckets.unpaid, true, `${m}-unpaid`)}
@@ -3087,7 +3286,7 @@ function calculateYearlyCollectionTracking(data) {
                 deals = store.transfer;
                 label = `${year}년 ${monthLabel} 이관 전체`;
             } else if (bucketKey === 'paid') {
-                deals = store.transfer.filter(d => d.won_time && d.won_time !== '');
+                deals = store.transfer.filter(d => d._hasWon);
                 label = `${year}년 ${monthLabel} 성사 (결제 완료)`;
             } else if (bucketKey === 'over') {
                 deals = store.buckets.over;
@@ -3110,34 +3309,174 @@ function calculateYearlyCollectionTracking(data) {
             showYtDetail(deals, label);
         });
     });
+
+    // 드래그 선택 합계 기능
+    initYtDragSelect(tbody);
 }
+
+function initYtDragSelect(tbody) {
+    let isDragging = false;
+    let selectedCells = [];
+    const table = tbody.closest('table');
+
+    function getCellPos(td) {
+        const row = td.parentElement;
+        return { row: row.rowIndex, col: td.cellIndex };
+    }
+
+    function getCellsInRange(start, end) {
+        const minR = Math.min(start.row, end.row);
+        const maxR = Math.max(start.row, end.row);
+        const minC = Math.min(start.col, end.col);
+        const maxC = Math.max(start.col, end.col);
+        const cells = [];
+        const rows = table.rows;
+        for (let r = minR; r <= maxR; r++) {
+            for (let c = minC; c <= maxC; c++) {
+                const cell = rows[r]?.cells[c];
+                if (cell && cell.dataset.amt !== undefined) cells.push(cell);
+            }
+        }
+        return cells;
+    }
+
+    function showDragTooltip(cells, e) {
+        let totalAmt = 0, totalCnt = 0;
+        cells.forEach(c => {
+            totalAmt += parseInt(c.dataset.amt) || 0;
+            totalCnt += parseInt(c.dataset.cnt) || 0;
+        });
+        if (cells.length <= 1) { hideDragTooltip(); return; }
+
+        let tip = document.getElementById('yt-drag-tooltip');
+        if (!tip) {
+            tip = document.createElement('div');
+            tip.id = 'yt-drag-tooltip';
+            tip.style.cssText = 'position:fixed;z-index:9999;padding:8px 14px;background:#1e1e2e;border:1px solid var(--accent-primary);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.5);pointer-events:none;font-size:13px;line-height:1.6;white-space:nowrap;opacity:1;';
+            document.body.appendChild(tip);
+        }
+        const eok = totalAmt / 100000000;
+        const amtStr = eok >= 1 ? `₩${eok.toFixed(2)}억` : `₩${totalAmt.toLocaleString()}`;
+        tip.innerHTML = `<div style="font-weight:700;color:var(--accent-primary);">${amtStr}</div><div style="color:var(--text-secondary);">${totalCnt}건 · ${cells.length}셀</div>`;
+        tip.style.display = 'block';
+        tip.style.left = (e.clientX + 16) + 'px';
+        tip.style.top = (e.clientY - 10) + 'px';
+    }
+
+    function hideDragTooltip() {
+        const tip = document.getElementById('yt-drag-tooltip');
+        if (tip) tip.style.display = 'none';
+    }
+
+    function clearSelection() {
+        selectedCells.forEach(c => c.classList.remove('yt-drag-selected'));
+        selectedCells = [];
+    }
+
+    let startPos = null;
+
+    tbody.addEventListener('mousedown', (e) => {
+        const td = e.target.closest('td[data-amt]');
+        if (!td) return;
+        e.preventDefault();
+        isDragging = true;
+        startPos = getCellPos(td);
+        clearSelection();
+        selectedCells = [td];
+        td.classList.add('yt-drag-selected');
+    });
+
+    tbody.addEventListener('mousemove', (e) => {
+        if (!isDragging || !startPos) return;
+        const td = e.target.closest('td[data-amt]');
+        if (!td) return;
+        const endPos = getCellPos(td);
+        clearSelection();
+        selectedCells = getCellsInRange(startPos, endPos);
+        selectedCells.forEach(c => c.classList.add('yt-drag-selected'));
+        showDragTooltip(selectedCells, e);
+    });
+
+    document.addEventListener('mouseup', () => {
+        if (isDragging) {
+            isDragging = false;
+            startPos = null;
+            setTimeout(() => {
+                clearSelection();
+                hideDragTooltip();
+            }, 2000);
+        }
+    });
+}
+
+let ytDetailCurrentDeals = [];
+let ytDetailCurrentLabel = '';
+let ytDetailSortedByBalance = false;
 
 function showYtDetail(deals, label) {
     const panel = document.getElementById('yt-detail-panel');
     const titleEl = document.getElementById('yt-detail-title');
-    const tbodyEl = document.getElementById('yt-detail-tbody');
-    if (!panel || !titleEl || !tbodyEl) return;
+    if (!panel || !titleEl) return;
 
-    const totalAmt = deals.reduce((s, d) => s + (parseInt(d.value) || 0), 0);
+    ytDetailCurrentDeals = [...deals].sort((a, b) => b._value - a._value);
+    ytDetailCurrentLabel = label;
+    ytDetailSortedByBalance = false;
+
+    const headerEl = document.getElementById('yt-balance-header');
+    if (headerEl) headerEl.textContent = '잔액 ▼';
+
+    renderYtDetailRows(ytDetailCurrentDeals, label);
+    panel.style.display = 'block';
+    panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function renderYtDetailRows(deals, label) {
+    const titleEl = document.getElementById('yt-detail-title');
+    const tbodyEl = document.getElementById('yt-detail-tbody');
+    if (!titleEl || !tbodyEl) return;
+
+    const totalAmt = deals.reduce((s, d) => s + d._value, 0);
     titleEl.textContent = `${label} — ${deals.length}건, ₩${totalAmt.toLocaleString()}`;
 
-    const sorted = [...deals].sort((a, b) => (parseInt(b.value) || 0) - (parseInt(a.value) || 0));
-
-    tbodyEl.innerHTML = sorted.map((d, i) => {
-        const val = parseInt(d.value) || 0;
+    tbodyEl.innerHTML = deals.map((d, i) => {
+        const val = d._value;
+        const bal = Number(d.balance) || 0;
         const orderDate = d.collection_order_date || '-';
         const wonDate = d.won_time || '미결제';
+        const stage = d.stage_name || '-';
+        const dealUrl = d.deal_id ? `https://raw-competition.pipedrive.com/deal/${d.deal_id}` : '';
+        const titleHtml = dealUrl
+            ? `<a href="${dealUrl}" target="_blank" rel="noopener" style="color:var(--accent-primary);text-decoration:none;">${d.title || '-'}</a>`
+            : (d.title || '-');
         return `<tr>
             <td>${i + 1}</td>
-            <td>${d.title || '-'}</td>
+            <td>${titleHtml}</td>
+            <td>${stage}</td>
             <td class="td-amount">₩${val.toLocaleString()}</td>
+            <td class="td-amount">₩${bal.toLocaleString()}</td>
             <td>${orderDate}</td>
             <td>${wonDate}</td>
         </tr>`;
     }).join('');
+}
 
-    panel.style.display = 'block';
-    panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+function sortYtDetailByBalance() {
+    if (!ytDetailCurrentDeals.length) return;
+
+    ytDetailSortedByBalance = !ytDetailSortedByBalance;
+
+    const headerEl = document.getElementById('yt-balance-header');
+
+    let sorted;
+    if (ytDetailSortedByBalance) {
+        sorted = [...ytDetailCurrentDeals].sort((a, b) => (Number(b.balance) || 0) - (Number(a.balance) || 0));
+        if (headerEl) headerEl.textContent = '잔액 ▲';
+    } else {
+        sorted = [...ytDetailCurrentDeals].sort((a, b) => b._value - a._value);
+        if (headerEl) headerEl.textContent = '잔액 ▼';
+    }
+
+    renderYtDetailRows(sorted, ytDetailCurrentLabel);
 }
 
 function closeYtDetail() {
@@ -3170,9 +3509,215 @@ function closeYtDetail() {
     });
 })();
 
+// ==========================================
+// 결제파트 누적 탭
+// ==========================================
+let pyYear = new Date().getFullYear();
+
+let pyDataLoaded = false;
+
+function initPaymentYearlyTab() {
+    const tabBtn = document.querySelector('[data-tab="payment-yearly"]');
+    if (tabBtn) {
+        tabBtn.addEventListener('click', () => {
+            if (!pyDataLoaded) {
+                loadPaymentYearlyData();
+            } else if (paymentDataCache) {
+                calculatePaymentYearlyKPIs(paymentDataCache);
+            }
+        });
+    }
+    updatePyYearDisplay();
+    loadPaymentYearlyTarget();
+}
+
+function updatePyYearDisplay() {
+    const el = document.getElementById('py-selected-year');
+    if (el) el.textContent = `${pyYear}년`;
+    const refundTitle = document.getElementById('py-refund-title');
+    if (refundTitle) refundTitle.textContent = `${pyYear}년 환급완료`;
+    const payTitle = document.getElementById('py-payment-title');
+    if (payTitle) payTitle.textContent = `${pyYear}년 결제금액`;
+}
+
+function changePaymentYearlyYear(delta) {
+    pyYear += delta;
+    updatePyYearDisplay();
+    const data = paymentDataCache || collectionDataCache;
+    if (data) calculatePaymentYearlyKPIs(data);
+}
+
+async function loadPaymentYearlyData() {
+    const loadingEl = document.getElementById('py-loading');
+    const errorEl = document.getElementById('py-error');
+    const contentEl = document.getElementById('py-content');
+
+    if (loadingEl) loadingEl.style.display = 'flex';
+    if (errorEl) errorEl.style.display = 'none';
+    if (contentEl) contentEl.style.display = 'none';
+
+    try {
+        const data = await fetchSharedData();
+        paymentDataCache = data;
+        collectionDataCache = data;
+        pyDataLoaded = true;
+        calculatePaymentYearlyKPIs(data);
+
+        const syncEl = document.getElementById('py-last-sync-time');
+        if (syncEl) syncEl.textContent = new Date().toLocaleString('ko-KR');
+
+        if (loadingEl) loadingEl.style.display = 'none';
+        if (contentEl) contentEl.style.display = 'block';
+    } catch (error) {
+        if (loadingEl) loadingEl.style.display = 'none';
+        if (errorEl) {
+            errorEl.style.display = 'flex';
+            const msgEl = document.getElementById('py-error-message');
+            if (msgEl) msgEl.textContent = error.message || '네트워크 오류';
+        }
+    }
+}
+
+function calculatePaymentYearlyKPIs(data) {
+    const year = pyYear;
+
+    // 1. 연간 누적 환급완료 (최초결제안내일 기준)
+    const refundDeals = data.filter(d => d._noticeDate && d._noticeDate.getFullYear() === year);
+    const refundCount = refundDeals.length;
+    const refundAmount = refundDeals.reduce((s, d) => s + d._value, 0);
+
+    document.getElementById('py-refund-amount').textContent = '₩' + formatNumber(refundAmount);
+    document.getElementById('py-refund-count').textContent = refundCount + '건';
+
+    // 2. 연간 누적 결제금액 (성사일 기준)
+    const paidDeals = data.filter(d => d._wonDate && d._wonDate.getFullYear() === year);
+    const paidCount = paidDeals.length;
+    const paidAmount = paidDeals.reduce((s, d) => s + d._value, 0);
+
+    document.getElementById('py-payment-amount').textContent = '₩' + formatNumber(paidAmount);
+    document.getElementById('py-payment-count').textContent = paidCount + '건';
+
+    // 연간 목표 진행률
+    updatePyProgress(paidAmount);
+
+    // 3. 연간 누적 결제율
+    const pyPeriods = [0, 7, 30, 90];
+    pyPeriods.forEach(days => {
+        const converted = refundDeals.filter(d => {
+            if (!d._hasWon || d._daysDiff === null) return false;
+            return days === 0 ? d._daysDiff === 0 : (d._daysDiff >= 0 && d._daysDiff <= days - 1);
+        });
+
+        const cntRate = refundCount > 0 ? (converted.length / refundCount) * 100 : 0;
+        const convertedAmt = converted.reduce((s, d) => s + d._value, 0);
+        const amtRate = refundAmount > 0 ? (convertedAmt / refundAmount) * 100 : 0;
+
+        const cntRateEl = document.getElementById(`py-rate-cnt-${days}d`);
+        if (cntRateEl) {
+            cntRateEl.textContent = cntRate.toFixed(1) + '%';
+            cntRateEl.className = 'rate-value';
+            if (cntRate >= 70) cntRateEl.classList.add('rate-high');
+            else if (cntRate >= 40) cntRateEl.classList.add('rate-medium');
+            else if (cntRate > 0) cntRateEl.classList.add('rate-low');
+        }
+
+        const amtRateEl = document.getElementById(`py-rate-amt-${days}d`);
+        if (amtRateEl) {
+            amtRateEl.textContent = amtRate.toFixed(1) + '%';
+            amtRateEl.className = 'rate-value rate-amount';
+            if (amtRate >= 70) amtRateEl.classList.add('rate-high');
+            else if (amtRate >= 40) amtRateEl.classList.add('rate-medium');
+            else if (amtRate > 0) amtRateEl.classList.add('rate-low');
+        }
+
+        const cntDetailEl = document.getElementById(`py-detail-cnt-${days}d`);
+        if (cntDetailEl) cntDetailEl.textContent = `${converted.length} / ${refundCount}`;
+
+        const amtDetailEl = document.getElementById(`py-detail-amt-${days}d`);
+        if (amtDetailEl) {
+            amtDetailEl.textContent = `${(convertedAmt / 100000000).toFixed(2)}억 / ${(refundAmount / 100000000).toFixed(2)}억`;
+        }
+    });
+
+    // 4. 추심 이관 비율
+    const transferDeals = data.filter(d => d._collectionDate && d._collectionDate.getFullYear() === year);
+    const transferCount = transferDeals.length;
+    const transferAmount = transferDeals.reduce((s, d) => s + d._value, 0);
+    const colRate = refundAmount > 0 ? (transferAmount / refundAmount) * 100 : 0;
+
+    document.getElementById('py-collection-rate').textContent = colRate.toFixed(1) + '%';
+    document.getElementById('py-col-refund').textContent = '₩' + formatNumber(refundAmount);
+    document.getElementById('py-col-transfer').textContent = '₩' + formatNumber(transferAmount);
+    document.getElementById('py-col-transfer-count').textContent = transferCount + '건';
+
+    const colFill = document.getElementById('py-collection-fill');
+    if (colFill) colFill.style.width = Math.min(colRate, 100) + '%';
+
+    // 5. 고객 컨택률 (연간 누적)
+    calculateContactRate(refundDeals, 'py');
+    // 6. 30일 초과 결제 (성사일 기준, 연간)
+    calculateOver30dPayment(data, 'py', year);
+}
+
+// 연간 목표
+function savePaymentYearlyTarget() {
+    const input = document.getElementById('py-target-input');
+    const target = parseTargetInput(input.value.trim());
+    localStorage.setItem('py_target_amount', target.toString());
+
+    const totalText = document.getElementById('py-payment-amount').textContent;
+    const totalAmount = parseNumber(totalText.replace(/[₩,]/g, ''));
+    updatePyProgress(totalAmount);
+
+    if (target > 0) showToast('연간 목표금액이 저장되었습니다!');
+}
+
+function loadPaymentYearlyTarget() {
+    const saved = localStorage.getItem('py_target_amount');
+    if (saved) {
+        const amount = parseInt(saved);
+        const input = document.getElementById('py-target-input');
+        if (input && amount > 0) {
+            const eok = amount / 100000000;
+            if (eok >= 1) input.value = eok % 1 === 0 ? `${eok}억` : `${eok.toFixed(1)}억`;
+            else input.value = Math.round(amount / 10000) + '만';
+        }
+        return amount;
+    }
+    return 0;
+}
+
+function updatePyProgress(totalAmount) {
+    const target = loadPaymentYearlyTarget();
+
+    const displayEl = document.getElementById('py-target-display');
+    if (displayEl) {
+        if (target > 0) {
+            const eok = target / 100000000;
+            displayEl.textContent = eok >= 1 ? `₩${eok % 1 === 0 ? eok : eok.toFixed(1)}억` : '₩' + formatNumber(target);
+        } else {
+            displayEl.textContent = '미설정';
+        }
+    }
+
+    const rate = target > 0 ? (totalAmount / target) * 100 : 0;
+    const rateEl = document.getElementById('py-progress-rate');
+    if (rateEl) {
+        rateEl.textContent = rate.toFixed(1) + '%';
+        rateEl.style.color = '';
+        if (rate >= 100) rateEl.style.color = 'var(--accent-success)';
+        else if (rate >= 80) rateEl.style.color = 'var(--accent-primary)';
+        else if (rate > 0) rateEl.style.color = 'var(--accent-danger)';
+    }
+
+    const fillEl = document.getElementById('py-progress-fill');
+    if (fillEl) fillEl.style.width = Math.min(rate, 100) + '%';
+}
+
 // Initialize when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
     init();
     initPaymentTab();
+    initPaymentYearlyTab();
     initCollectionTab();
 });

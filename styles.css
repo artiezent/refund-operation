@@ -1376,9 +1376,23 @@ tr[data-rate=low] .table-progress-fill {
 .rate-value.rate-medium { color: var(--accent-warning) !important; }
 .rate-value.rate-low { color: var(--accent-danger) !important; }
 
-/* ?? ??????? */
 .rate-amount {
     font-size: 24px !important;
+    font-weight: 800 !important;
+}
+
+.td-rate-primary {
+    background: rgba(99, 102, 241, 0.04);
+}
+
+.th-rate-primary {
+    background: rgba(99, 102, 241, 0.08) !important;
+    font-weight: 800 !important;
+}
+
+.td-rate-secondary .rate-value {
+    font-size: 13px !important;
+    opacity: 0.6;
 }
 
 /* ???????? ???? ??? */
@@ -1853,6 +1867,8 @@ tr[data-rate=low] .table-progress-fill {
     border-collapse: separate;
     border-spacing: 0;
     font-size: 13px;
+    user-select: none;
+    -webkit-user-select: none;
 }
 
 .yearly-collection-table thead {
@@ -2097,6 +2113,15 @@ tr[data-rate=low] .table-progress-fill {
     text-align: right;
 }
 
+.yt-detail-table th[onclick] {
+    cursor: pointer;
+    user-select: none;
+}
+
+.yt-detail-table th[onclick]:hover {
+    color: var(--accent-primary);
+}
+
 .yt-cell-rate[data-click],
 .yt-cell-num[data-click] {
     cursor: pointer;
@@ -2117,6 +2142,12 @@ tr[data-rate=low] .table-progress-fill {
 
 tr.yt-cell-active td {
     background: rgba(99, 102, 241, 0.08) !important;
+}
+
+.yt-drag-selected {
+    outline: 2px solid var(--accent-primary) !important;
+    outline-offset: -2px;
+    background: rgba(255, 255, 255, 0.15) !important;
 }
 
 tr[data-period] {
