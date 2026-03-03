@@ -26,7 +26,7 @@ function syncPipedriveData() {
   
   const lastRow = sheet.getLastRow();
   if (lastRow > 1) {
-    sheet.getRange(2, 1, lastRow - 1, 14).clearContent();
+    sheet.getRange(2, 1, lastRow - 1, 15).clearContent();
   }
   
   const deals = fetchAllDealsForSync();
@@ -52,10 +52,11 @@ function syncPipedriveData() {
     deal[FIELD_APPLY_DATE] || '',
     deal[FIELD_JUPJUP_PERSON] ? String(deal[FIELD_JUPJUP_PERSON]) : '',
     deal[FIELD_DEFENSE_DATE] || '',
-    deal[FIELD_DEFENSE_PERSON] ? String(deal[FIELD_DEFENSE_PERSON]) : ''
+    deal[FIELD_DEFENSE_PERSON] ? String(deal[FIELD_DEFENSE_PERSON]) : '',
+    parseFloat(deal[FIELD_REFUND_AMOUNT]) || 0
   ]);
   
-  sheet.getRange(2, 1, data.length, 14).setValues(data);
+  sheet.getRange(2, 1, data.length, 15).setValues(data);
   Logger.log(`${data.length}개의 거래를 동기화했습니다.`);
   
   // 캐시 무효화
@@ -642,7 +643,8 @@ function getPaymentData() {
       apply_date: toStr(row[10]),
       jupjup_person: row[11] || '',
       defense_date: toStr(row[12]),
-      defense_person: row[13] || ''
+      defense_person: row[13] || '',
+      refund_amount: Number(row[14]) || 0
     };
   });
   

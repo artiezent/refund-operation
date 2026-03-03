@@ -1697,16 +1697,16 @@ function calculatePerformanceFromData(data, year, month) {
     let defenseCount = 0, defenseAmount = 0;
     
     data.forEach(d => {
-        const val = d._value;
+        const val = d._refundAmount || 0;
         
-        if (d._applyDate && d._hasJupjupPerson) {
+        if (d._applyDate && d._hasJupjupPerson && val > 0) {
             if (d._applyDate.getFullYear() === year && d._applyDate.getMonth() + 1 === month) {
                 applyCount++;
                 applyAmount += val;
             }
         }
         
-        if (d._defenseDate && d._hasDefensePerson) {
+        if (d._defenseDate && d._hasDefensePerson && val > 0) {
             if (d._defenseDate.getFullYear() === year && d._defenseDate.getMonth() + 1 === month) {
                 defenseCount++;
                 defenseAmount += val;
@@ -2133,6 +2133,7 @@ function preprocessData(data) {
         d._hasJupjupPerson = !!(deal.jupjup_person && deal.jupjup_person.toString().trim() !== '');
         d._defenseDate = (deal.defense_date && deal.defense_date !== '') ? parseToKST(deal.defense_date) : null;
         d._hasDefensePerson = !!(deal.defense_person && deal.defense_person.toString().trim() !== '');
+        d._refundAmount = Number(deal.refund_amount) || 0;
         if (d._noticeDate && d._wonDate) {
             const s = new Date(d._noticeDate.getFullYear(), d._noticeDate.getMonth(), d._noticeDate.getDate());
             const e = new Date(d._wonDate.getFullYear(), d._wonDate.getMonth(), d._wonDate.getDate());
