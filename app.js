@@ -1699,13 +1699,15 @@ function calculatePerformanceFromData(data, year, month) {
     data.forEach(d => {
         const val = d._refundAmount || 0;
         
-        if (d._applyDate && d._hasJupjupPerson && val > 0) {
-            if (d._applyDate.getFullYear() === year && d._applyDate.getMonth() + 1 === month) {
+        // 신청전환 성공: 줍줍콜 담당자 있음 + 성사일(won_time)이 해당 월
+        if (d._wonDate && d._hasJupjupPerson && val > 0) {
+            if (d._wonDate.getFullYear() === year && d._wonDate.getMonth() + 1 === month) {
                 applyCount++;
                 applyAmount += val;
             }
         }
         
+        // 취소방어 성공: 취소방어 담당자 있음 + 취소방어일이 해당 월
         if (d._defenseDate && d._hasDefensePerson && val > 0) {
             if (d._defenseDate.getFullYear() === year && d._defenseDate.getMonth() + 1 === month) {
                 defenseCount++;
