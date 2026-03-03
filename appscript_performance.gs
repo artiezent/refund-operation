@@ -684,7 +684,7 @@ function getPerformanceData(year, month) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
-// Pipedrive 필터의 날짜 조건을 지정 월로 변경
+// Pipedrive 필터의 날짜 조건을 지정 월로 변경 (나머지 조건 보존)
 function updateFilterToMonth(filterId, year, month) {
   try {
     var getUrl = 'https://api.pipedrive.com/v1/filters/' + filterId + '?api_token=' + PIPEDRIVE_API_KEY;
@@ -692,39 +692,44 @@ function updateFilterToMonth(filterId, year, month) {
     var filterData = JSON.parse(getResp.getContentText());
     if (!filterData.success) return;
 
-    var conditions = filterData.data.conditions;
-    var dateFieldIds = {};
-    // 첫 번째 조건 그룹에서 날짜 필드 찾기
-    if (conditions.conditions && conditions.conditions[0] && conditions.conditions[0].conditions) {
-      var dateConditions = conditions.conditions[0].conditions;
-      // 날짜 조건을 "after + before" 범위로 변경
-      var monthStr = (month < 10 ? '0' + month : '' + month);
-      var nextMonth = month + 1;
-      var nextYear = year;
-      if (nextMonth > 12) { nextMonth = 1; nextYear = year + 1; }
-      var nextMonthStr = (nextMonth < 10 ? '0' + nextMonth : '' + nextMonth);
-      var startDate = year + '-' + monthStr + '-01';
-      var endDate = nextYear + '-' + nextMonthStr + '-01';
+    var monthStr = (month < 10 ? '0' + month : '' + month);
+    var nextMonth = month + 1, nextYear = year;
+    if (nextMonth > 12) { nextMonth = 1; nextYear = year + 1; }
+    var nextMonthStr = (nextMonth < 10 ? '0' + nextMonth : '' + nextMonth);
+    var startDate = year + '-' + monthStr + '-01';
+    var endDate = nextYear + '-' + nextMonthStr + '-01';
 
-      // 기존 날짜 조건을 after/before로 교체
-      var fieldId = dateConditions[0].field_id;
-      conditions.conditions[0].conditions = [
-        { object: 'deal', field_id: fieldId, operator: '>', value: startDate, extra_value: null },
-        { object: 'deal', field_id: fieldId, operator: '<', value: endDate, extra_value: null }
-      ];
+    var conditions = filterData.data.conditions;
+    if (!conditions.conditions || !conditions.conditions[0]) return;
+
+    var firstGroup = conditions.conditions[0].conditions;
+    var newGroup = [];
+    var dateReplaced = false;
+
+    for (var i = 0; i < firstGroup.length; i++) {
+      var c = firstGroup[i];
+      var isDateCond = (c.value === 'this_month' || c.value === 'last_month' || c.operator === '>' || c.operator === '<');
+      if (isDateCond && !dateReplaced) {
+        var obj = c.object || 'deal';
+        var fid = c.field_id;
+        newGroup.push({ object: obj, field_id: fid, operator: '>', value: startDate, extra_value: null });
+        newGroup.push({ object: obj, field_id: fid, operator: '<', value: endDate, extra_value: null });
+        dateReplaced = true;
+      } else if (isDateCond && dateReplaced) {
+        // 이전 날짜 범위 조건 스킵
+      } else {
+        newGroup.push(c);
+      }
     }
+    conditions.conditions[0].conditions = newGroup;
 
     var putUrl = 'https://api.pipedrive.com/v1/filters/' + filterId + '?api_token=' + PIPEDRIVE_API_KEY;
-    var putResp = UrlFetchApp.fetch(putUrl, {
-      method: 'put',
-      contentType: 'application/json',
-      payload: JSON.stringify({ conditions: conditions }),
-      muteHttpExceptions: true
+    UrlFetchApp.fetch(putUrl, {
+      method: 'put', contentType: 'application/json',
+      payload: JSON.stringify({ conditions: conditions }), muteHttpExceptions: true
     });
-    Logger.log('필터 ' + filterId + ' 업데이트: ' + year + '-' + month + ' (' + putResp.getResponseCode() + ')');
-  } catch (e) {
-    Logger.log('필터 업데이트 실패: ' + e.message);
-  }
+    Logger.log('필터 ' + filterId + ' → ' + year + '-' + monthStr);
+  } catch (e) { Logger.log('필터 업데이트 실패: ' + e.message); }
 }
 
 // 활동수 API (year/month 지정 가능 - 필터 날짜 자동 변경)
