@@ -1613,6 +1613,7 @@ function changePerfMonth(delta) {
     selectedPerfMonth.setMonth(selectedPerfMonth.getMonth() + delta);
     updatePerfMonthDisplay();
     loadPerformanceSummary();
+    loadActivityStatus();
 }
 
 function savePerfToLocal(year, month, data) {
@@ -1986,7 +1987,9 @@ async function loadActivityStatus() {
     if (contentEl) contentEl.style.display = 'none';
     
     try {
-        const url = `${PERFORMANCE_API_URL}?action=activity`;
+        const year = selectedPerfMonth.getFullYear();
+        const month = selectedPerfMonth.getMonth() + 1;
+        const url = `${PERFORMANCE_API_URL}?action=activity&year=${year}&month=${month}`;
         console.log('활동수 API 호출:', url);
         
         const response = await fetch(url);

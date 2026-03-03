@@ -521,7 +521,9 @@ function doGet(e) {
     var month = e.parameter.month ? parseInt(e.parameter.month) : null;
     return getPerformanceData(year, month);
   } else if (action === 'activity') {
-    return getActivityData();
+    var aYear = e.parameter.year ? parseInt(e.parameter.year) : null;
+    var aMonth = e.parameter.month ? parseInt(e.parameter.month) : null;
+    return getActivityData(aYear, aMonth);
   } else if (action === 'manual') {
     return getManualData();
   } else if (action === 'saveManual') {
@@ -725,10 +727,14 @@ function updateFilterToMonth(filterId, year, month) {
   }
 }
 
-// 활동수 API
-function getActivityData() {
-  const applyActivity = calculateApplyActivityCount();
-  const defenseActivity = calculateDefenseActivityCount();
+// 활동수 API (year/month 지정 가능 - 필터 날짜 자동 변경)
+function getActivityData(year, month) {
+  if (year && month) {
+    updateFilterToMonth(FILTER_APPLY_ACTIVITY, year, month);
+    updateFilterToMonth(FILTER_DEFENSE_ACTIVITY, year, month);
+  }
+  var applyActivity = calculateApplyActivityCount();
+  var defenseActivity = calculateDefenseActivityCount();
   
   return ContentService
     .createTextOutput(JSON.stringify({ 
