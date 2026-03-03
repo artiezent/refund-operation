@@ -1699,9 +1699,9 @@ function calculatePerformanceFromData(data, year, month) {
     data.forEach(d => {
         const val = d._refundAmount || 0;
         
-        // 신청전환 성공: 줍줍콜 담당자 있음 + 성사일(won_time)이 해당 월
-        if (d._wonDate && d._hasJupjupPerson && val > 0) {
-            if (d._wonDate.getFullYear() === year && d._wonDate.getMonth() + 1 === month) {
+        // 신청전환 성공: 줍줍콜 담당자 있음 + 신청일자(apply_date)가 해당 월
+        if (d._applyDate && d._hasJupjupPerson && val > 0) {
+            if (d._applyDate.getFullYear() === year && d._applyDate.getMonth() + 1 === month) {
                 applyCount++;
                 applyAmount += val;
             }

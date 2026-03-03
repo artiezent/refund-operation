@@ -105,8 +105,9 @@ function fetchDealsWithPaymentNotice() {
 function fetchAllDealsForSync() {
   var wonDeals = fetchDealsByStatus('won');
   var openDeals = fetchDealsByStatus('open');
-  var allDeals = wonDeals.concat(openDeals);
-  Logger.log('Won: ' + wonDeals.length + ', Open: ' + openDeals.length);
+  var lostDeals = fetchDealsByStatus('lost');
+  var allDeals = wonDeals.concat(openDeals).concat(lostDeals);
+  Logger.log('Won: ' + wonDeals.length + ', Open: ' + openDeals.length + ', Lost: ' + lostDeals.length);
 
   var filtered = allDeals.filter(function(deal) {
     return (deal[CUSTOM_FIELD_FIRST_PAYMENT_NOTICE] && deal[CUSTOM_FIELD_FIRST_PAYMENT_NOTICE] !== '') ||
