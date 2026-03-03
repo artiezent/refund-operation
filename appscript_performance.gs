@@ -105,9 +105,8 @@ function fetchDealsWithPaymentNotice() {
 function fetchAllDealsForSync() {
   var wonDeals = fetchDealsByStatus('won');
   var openDeals = fetchDealsByStatus('open');
-  var lostDeals = fetchDealsByStatus('lost');
-  var allDeals = wonDeals.concat(openDeals).concat(lostDeals);
-  Logger.log('Won: ' + wonDeals.length + ', Open: ' + openDeals.length + ', Lost: ' + lostDeals.length);
+  var allDeals = wonDeals.concat(openDeals);
+  Logger.log('Won: ' + wonDeals.length + ', Open: ' + openDeals.length);
 
   var filtered = allDeals.filter(function(deal) {
     return (deal[CUSTOM_FIELD_FIRST_PAYMENT_NOTICE] && deal[CUSTOM_FIELD_FIRST_PAYMENT_NOTICE] !== '') ||
@@ -518,7 +517,9 @@ function doGet(e) {
   if (action === 'payment') {
     return getPaymentData();
   } else if (action === 'performance') {
-    return getPerformanceData();
+    var year = e.parameter.year ? parseInt(e.parameter.year) : null;
+    var month = e.parameter.month ? parseInt(e.parameter.month) : null;
+    return getPerformanceData(year, month);
   } else if (action === 'activity') {
     return getActivityData();
   } else if (action === 'manual') {
@@ -669,16 +670,59 @@ function getPaymentData() {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
-// 성과 요약 API (현재 월 전용 - 과거 월은 클라이언트에서 계산)
-function getPerformanceData() {
-  const result = calculatePerformanceByFilter();
-  
+// 성과 요약 API (year/month 지정 가능 - 필터 날짜 자동 변경)
+function getPerformanceData(year, month) {
+  if (year && month) {
+    updateFilterToMonth(FILTER_APPLY_SUCCESS, year, month);
+    updateFilterToMonth(FILTER_DEFENSE_SUCCESS, year, month);
+  }
+  var result = calculatePerformanceByFilter();
   return ContentService
-    .createTextOutput(JSON.stringify({ 
-      success: true, 
-      data: result 
-    }))
+    .createTextOutput(JSON.stringify({ success: true, data: result }))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+// Pipedrive 필터의 날짜 조건을 지정 월로 변경
+function updateFilterToMonth(filterId, year, month) {
+  try {
+    var getUrl = 'https://api.pipedrive.com/v1/filters/' + filterId + '?api_token=' + PIPEDRIVE_API_KEY;
+    var getResp = UrlFetchApp.fetch(getUrl, { muteHttpExceptions: true });
+    var filterData = JSON.parse(getResp.getContentText());
+    if (!filterData.success) return;
+
+    var conditions = filterData.data.conditions;
+    var dateFieldIds = {};
+    // 첫 번째 조건 그룹에서 날짜 필드 찾기
+    if (conditions.conditions && conditions.conditions[0] && conditions.conditions[0].conditions) {
+      var dateConditions = conditions.conditions[0].conditions;
+      // 날짜 조건을 "after + before" 범위로 변경
+      var monthStr = (month < 10 ? '0' + month : '' + month);
+      var nextMonth = month + 1;
+      var nextYear = year;
+      if (nextMonth > 12) { nextMonth = 1; nextYear = year + 1; }
+      var nextMonthStr = (nextMonth < 10 ? '0' + nextMonth : '' + nextMonth);
+      var startDate = year + '-' + monthStr + '-01';
+      var endDate = nextYear + '-' + nextMonthStr + '-01';
+
+      // 기존 날짜 조건을 after/before로 교체
+      var fieldId = dateConditions[0].field_id;
+      conditions.conditions[0].conditions = [
+        { object: 'deal', field_id: fieldId, operator: '>', value: startDate, extra_value: null },
+        { object: 'deal', field_id: fieldId, operator: '<', value: endDate, extra_value: null }
+      ];
+    }
+
+    var putUrl = 'https://api.pipedrive.com/v1/filters/' + filterId + '?api_token=' + PIPEDRIVE_API_KEY;
+    var putResp = UrlFetchApp.fetch(putUrl, {
+      method: 'put',
+      contentType: 'application/json',
+      payload: JSON.stringify({ conditions: conditions }),
+      muteHttpExceptions: true
+    });
+    Logger.log('필터 ' + filterId + ' 업데이트: ' + year + '-' + month + ' (' + putResp.getResponseCode() + ')');
+  } catch (e) {
+    Logger.log('필터 업데이트 실패: ' + e.message);
+  }
 }
 
 // 활동수 API

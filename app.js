@@ -1638,42 +1638,20 @@ async function loadPerformanceSummary() {
     
     const year = selectedPerfMonth.getFullYear();
     const month = selectedPerfMonth.getMonth() + 1;
-    const now = new Date();
-    const isCurrentMonth = (year === now.getFullYear() && month === now.getMonth() + 1);
     
     if (loadingEl) loadingEl.style.display = 'flex';
     if (errorEl) errorEl.style.display = 'none';
     if (contentEl) contentEl.style.display = 'none';
     
     try {
-        let result;
+        // 모든 월: API에 year/month 전달 → 서버에서 Pipedrive 필터 날짜 자동 변경 후 조회
+        const url = `${PERFORMANCE_API_URL}?action=performance&year=${year}&month=${month}`;
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        const json = await response.json();
+        if (!json.success) throw new Error('성과 데이터를 가져오는데 실패했습니다.');
         
-        if (isCurrentMonth) {
-            // 현재 월: 기존 Pipedrive 필터 API 사용 (안정적)
-            const url = `${PERFORMANCE_API_URL}?action=performance`;
-            const response = await fetch(url);
-            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-            const json = await response.json();
-            if (!json.success) throw new Error('성과 데이터를 가져오는데 실패했습니다.');
-            result = json.data;
-        } else {
-            // 과거 월: 결제 데이터에서 클라이언트 계산
-            let data = await fetchSharedData();
-            // 성과 필드가 없으면 캐시 무효화 후 네트워크에서 새로 가져오기
-            const hasPerformanceFields = data.some(d => d._applyDate || d._defenseDate);
-            if (!hasPerformanceFields) {
-                console.log('성과 필드 없음 → 캐시 무효화 후 새로 가져오기');
-                sharedDataPromise = null;
-                localStorage.removeItem(LOCAL_CACHE_KEY);
-                localStorage.removeItem(LOCAL_CACHE_TS_KEY);
-                data = await fetchFromNetwork();
-                paymentDataCache = data;
-                collectionDataCache = data;
-            }
-            result = calculatePerformanceFromData(data, year, month);
-        }
-        
-        updatePerformanceSummaryUI(result);
+        updatePerformanceSummaryUI(json.data);
         
         const syncTimeEl = document.getElementById('perf-sync-time');
         if (syncTimeEl) syncTimeEl.textContent = new Date().toLocaleString('ko-KR');
