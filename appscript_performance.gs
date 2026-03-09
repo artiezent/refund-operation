@@ -59,12 +59,14 @@ function syncPipedriveData() {
   sheet.getRange(2, 1, data.length, 15).setValues(data);
   Logger.log(`${data.length}개의 거래를 동기화했습니다.`);
   
-  // 캐시 무효화
+  // 캐시 워밍업 (다음 API 호출 시 즉시 응답)
   try {
-    var cache = CacheService.getScriptCache();
-    cache.remove('paymentData');
-    cache.remove('paymentData_chunks');
-  } catch(e) {}
+    var json = buildPaymentJson();
+    cachePaymentJson(json);
+    Logger.log('캐시 워밍업 완료 (' + json.length + ' bytes)');
+  } catch(e) {
+    Logger.log('캐시 워밍업 실패: ' + e.message);
+  }
 }
 
 function fetchStageMap() {
@@ -598,6 +600,75 @@ function doPost(e) {
   }
 }
 
+// 결제 데이터 빌드 (캐시 워밍업 + API 공용)
+var CACHE_TTL = 21600; // 6시간 (sync 시 무효화되므로 길어도 OK)
+
+function buildPaymentJson() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('결제데이터');
+  var data = sheet.getDataRange().getValues();
+  var rows = data.slice(1);
+
+  var toStr = function(v) {
+    if (!v || v === '') return '';
+    if (v instanceof Date) return Utilities.formatDate(v, 'Asia/Seoul', 'yyyy-MM-dd');
+    return String(v);
+  };
+
+  var getYear = function(v) {
+    if (!v || v === '') return 0;
+    if (v instanceof Date) return v.getFullYear();
+    var s = String(v);
+    var y = parseInt(s.substring(0, 4));
+    return isNaN(y) ? 0 : y;
+  };
+
+  var result = [];
+  for (var i = 0; i < rows.length; i++) {
+    var row = rows[i];
+    var noticeYear = getYear(row[3]);
+    var wonYear = getYear(row[4]);
+    var wonTime = toStr(row[4]);
+    // 2025년 이전에 결제 완료된 거래는 제외 (open 거래는 유지)
+    if (noticeYear > 0 && noticeYear < 2025 && wonYear > 0 && wonYear < 2025) continue;
+
+    result.push({
+      deal_id: row[0],
+      title: row[1],
+      value: Number(row[2]) || 0,
+      first_payment_notice: toStr(row[3]),
+      won_time: wonTime,
+      collection_order_date: toStr(row[5]),
+      balance: Number(row[6]) || 0,
+      stage_name: row[7] || '',
+      customer_type: row[8] || ''
+    });
+  }
+
+  return JSON.stringify({ success: true, data: result });
+}
+
+function cachePaymentJson(json) {
+  var cache = CacheService.getScriptCache();
+  try {
+    cache.remove('paymentData');
+    cache.remove('paymentData_chunks');
+    var numOld = 20;
+    for (var r = 0; r < numOld; r++) cache.remove('paymentData_' + r);
+  } catch(e) {}
+
+  try {
+    cache.put('paymentData', json, CACHE_TTL);
+  } catch (e) {
+    var chunkSize = 90000;
+    var chunks = Math.ceil(json.length / chunkSize);
+    var cacheMap = { 'paymentData_chunks': String(chunks) };
+    for (var i = 0; i < chunks; i++) {
+      cacheMap['paymentData_' + i] = json.substring(i * chunkSize, (i + 1) * chunkSize);
+    }
+    cache.putAll(cacheMap, CACHE_TTL);
+  }
+}
+
 // 결제 데이터 API (CacheService 적용)
 function getPaymentData() {
   var cache = CacheService.getScriptCache();
@@ -615,61 +686,15 @@ function getPaymentData() {
       }
     }
   }
-  
-  if (cached) {
-    return ContentService
-      .createTextOutput(cached)
-      .setMimeType(ContentService.MimeType.JSON);
-  }
-  
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('결제데이터');
-  var data = sheet.getDataRange().getValues();
-  var rows = data.slice(1);
-  
-  var toStr = function(v) {
-    if (!v || v === '') return '';
-    if (v instanceof Date) return Utilities.formatDate(v, 'Asia/Seoul', 'yyyy-MM-dd');
-    return String(v);
-  };
 
-  var result = rows.map(function(row) {
-    return {
-      deal_id: row[0],
-      title: row[1],
-      value: Number(row[2]) || 0,
-      first_payment_notice: toStr(row[3]),
-      won_time: toStr(row[4]),
-      collection_order_date: toStr(row[5]),
-      balance: Number(row[6]) || 0,
-      stage_name: row[7] || '',
-      customer_type: row[8] || '',
-      add_time: toStr(row[9]),
-      apply_date: toStr(row[10]),
-      jupjup_person: row[11] || '',
-      defense_date: toStr(row[12]),
-      defense_person: row[13] || '',
-      refund_amount: Number(row[14]) || 0
-    };
-  });
-  
-  var json = JSON.stringify({ success: true, data: result });
-  
-  try {
-    cache.put('paymentData', json, 300);
-  } catch (e) {
-    // 100KB 초과 시 청크 분할 캐시
-    var chunkSize = 90000;
-    var chunks = Math.ceil(json.length / chunkSize);
-    var cacheMap = { 'paymentData_chunks': String(chunks) };
-    for (var i = 0; i < chunks; i++) {
-      cacheMap['paymentData_' + i] = json.substring(i * chunkSize, (i + 1) * chunkSize);
-    }
-    cache.putAll(cacheMap, 300);
+  if (cached) {
+    return ContentService.createTextOutput(cached).setMimeType(ContentService.MimeType.JSON);
   }
-  
-  return ContentService
-    .createTextOutput(json)
-    .setMimeType(ContentService.MimeType.JSON);
+
+  var json = buildPaymentJson();
+  cachePaymentJson(json);
+
+  return ContentService.createTextOutput(json).setMimeType(ContentService.MimeType.JSON);
 }
 
 // 성과 요약 API (year/month 지정 가능 - 필터 날짜 자동 변경)
