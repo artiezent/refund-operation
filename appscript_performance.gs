@@ -1,44 +1,52 @@
 // ========== 설정 ==========
-const PIPEDRIVE_API_KEY = 'cbc419beec83e32e7c9c50ab815eb0ab0508ea80';
-const CUSTOM_FIELD_FIRST_PAYMENT_NOTICE = 'b24a25502fdeb48ac55986536dd8d449fe1ec494';
-const CUSTOM_FIELD_COLLECTION_ORDER = '69b948cd5331d1c78a7d4045dae1be38be7a7177';  // 지급명령 단계
-const CUSTOM_FIELD_BALANCE = '48c83ab2832b3e470154899dc3db5510221d321b';  // 잔액
-const CUSTOM_FIELD_CUSTOMER_TYPE = '0ec37f587ba626b05d5db916d9e2f185e47f1abc';  // B(환급)-고객 유형
+var PIPEDRIVE_API_KEY = 'cbc419beec83e32e7c9c50ab815eb0ab0508ea80';
+var CUSTOM_FIELD_FIRST_PAYMENT_NOTICE = 'b24a25502fdeb48ac55986536dd8d449fe1ec494';
+var CUSTOM_FIELD_COLLECTION_ORDER = '69b948cd5331d1c78a7d4045dae1be38be7a7177';
+var CUSTOM_FIELD_BALANCE = '48c83ab2832b3e470154899dc3db5510221d321b';
+var CUSTOM_FIELD_CUSTOMER_TYPE = '0ec37f587ba626b05d5db916d9e2f185e47f1abc';
 
-// 성과 요약용 커스텀 필드
-const FIELD_REFUND_AMOUNT = '18f5d8f72f30db7d6abdc4aa862f64b9cb96409b';  // 조회 환급액
-const FIELD_APPLY_DATE = 'd63b4b92c9490208976c2fdd430cb55ee558b15e';     // ✔ 신청일자
-const FIELD_JUPJUP_PERSON = '3872c9f450beec097bbb5db2dff1ae118684d765';  // 줍줍콜 담당자
-const FIELD_DEFENSE_DATE = 'f362d92f24f82d2b27ecc093602489cf134170cd';   // 취소방어일
-const FIELD_DEFENSE_PERSON = '32409a838adc8343885fc0c82fa4631d6a5087b9'; // 취소방어 담당자
+var FIELD_REFUND_AMOUNT = '18f5d8f72f30db7d6abdc4aa862f64b9cb96409b';
+var FIELD_APPLY_DATE = 'd63b4b92c9490208976c2fdd430cb55ee558b15e';
+var FIELD_JUPJUP_PERSON = '3872c9f450beec097bbb5db2dff1ae118684d765';
+var FIELD_DEFENSE_DATE = 'f362d92f24f82d2b27ecc093602489cf134170cd';
+var FIELD_DEFENSE_PERSON = '32409a838adc8343885fc0c82fa4631d6a5087b9';
 
-// 성과 요약용 필터 ID (Pipedrive에서 생성한 필터)
-const FILTER_APPLY_SUCCESS = 1430754;    // 신청전환 성공 필터
-const FILTER_DEFENSE_SUCCESS = 1430989;  // 취소방어 성공 필터
+var FILTER_APPLY_SUCCESS = 1430754;
+var FILTER_DEFENSE_SUCCESS = 1430989;
+var FILTER_APPLY_ACTIVITY = 1431275;
+var FILTER_DEFENSE_ACTIVITY = 1431330;
 
-// 활동수 현황용 필터 ID
-const FILTER_APPLY_ACTIVITY = 1431275;   // 신청전환 활동 필터
-const FILTER_DEFENSE_ACTIVITY = 1431330; // 취소방어 활동 필터
+var CACHE_TTL = 21600; // 6시간
 
-// ========== 메인: 결제 데이터 동기화 (기존 유지) ==========
-function syncPipedriveData() {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('결제데이터');
-  
-  const lastRow = sheet.getLastRow();
-  if (lastRow > 1) {
-    sheet.getRange(2, 1, lastRow - 1, 15).clearContent();
+// ========== 시트 관리 헬퍼 ==========
+
+function getOrCreateSheet(name) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(name);
+  if (!sheet) {
+    sheet = ss.insertSheet(name);
+    sheet.getRange(1, 1, 1, 15).setValues([[
+      'deal_id', 'title', 'value', 'first_payment_notice', 'won_time',
+      'collection_order_date', 'balance', 'stage_name', 'customer_type',
+      'add_time', 'apply_date', 'jupjup_person', 'defense_date', 'defense_person', 'refund_amount'
+    ]]);
   }
-  
-  const deals = fetchAllDealsForSync();
-  
-  if (deals.length === 0) {
-    Logger.log('가져온 거래가 없습니다.');
-    return;
+  return sheet;
+}
+
+function getExistingDealIds(sheet) {
+  var lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return {};
+  var ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+  var map = {};
+  for (var i = 0; i < ids.length; i++) {
+    if (ids[i][0]) map[ids[i][0]] = true;
   }
-  
-  const stageMap = fetchStageMap();
-  
-  const data = deals.map(deal => [
+  return map;
+}
+
+function dealToRow(deal, stageMap) {
+  return [
     deal.id,
     deal.title,
     deal.value || 0,
@@ -46,7 +54,7 @@ function syncPipedriveData() {
     deal.won_time || '',
     deal[CUSTOM_FIELD_COLLECTION_ORDER] || '',
     deal[CUSTOM_FIELD_BALANCE] || 0,
-    stageMap[deal.stage_id] || '',
+    (stageMap && stageMap[deal.stage_id]) ? stageMap[deal.stage_id] : '',
     deal[CUSTOM_FIELD_CUSTOMER_TYPE] || '',
     deal.add_time || '',
     deal[FIELD_APPLY_DATE] || '',
@@ -54,12 +62,65 @@ function syncPipedriveData() {
     deal[FIELD_DEFENSE_DATE] || '',
     deal[FIELD_DEFENSE_PERSON] ? String(deal[FIELD_DEFENSE_PERSON]) : '',
     parseFloat(deal[FIELD_REFUND_AMOUNT]) || 0
-  ]);
-  
+  ];
+}
+
+function writeDealsToSheet(sheet, deals, stageMap) {
+  var lastRow = sheet.getLastRow();
+  if (lastRow > 1) {
+    sheet.getRange(2, 1, lastRow - 1, 15).clearContent();
+  }
+  if (deals.length === 0) return;
+  var data = [];
+  for (var i = 0; i < deals.length; i++) {
+    data.push(dealToRow(deals[i], stageMap));
+  }
   sheet.getRange(2, 1, data.length, 15).setValues(data);
-  Logger.log(`${data.length}개의 거래를 동기화했습니다.`);
-  
-  // 캐시 워밍업 (다음 API 호출 시 즉시 응답)
+}
+
+function appendDealsToSheet(sheet, deals, stageMap) {
+  if (deals.length === 0) return;
+  var lastRow = sheet.getLastRow();
+  var data = [];
+  for (var i = 0; i < deals.length; i++) {
+    data.push(dealToRow(deals[i], stageMap));
+  }
+  sheet.getRange(lastRow + 1, 1, data.length, 15).setValues(data);
+}
+
+function isRelevantDeal(deal) {
+  return (deal[CUSTOM_FIELD_FIRST_PAYMENT_NOTICE] && deal[CUSTOM_FIELD_FIRST_PAYMENT_NOTICE] !== '') ||
+         (deal[FIELD_APPLY_DATE] && deal[FIELD_APPLY_DATE] !== '') ||
+         (deal[FIELD_DEFENSE_DATE] && deal[FIELD_DEFENSE_DATE] !== '');
+}
+
+// ========== 동기화 ==========
+
+// 전체 동기화 (최초 1회 또는 수동 실행)
+function syncPipedriveData() {
+  var stageMap = fetchStageMap();
+
+  // Won deals → 결제완료 시트
+  var wonDeals = fetchDealsByStatus('won');
+  var wonFiltered = [];
+  for (var i = 0; i < wonDeals.length; i++) {
+    if (isRelevantDeal(wonDeals[i])) wonFiltered.push(wonDeals[i]);
+  }
+  var wonSheet = getOrCreateSheet('결제완료');
+  writeDealsToSheet(wonSheet, wonFiltered, stageMap);
+  Logger.log('결제완료: ' + wonFiltered.length + '건');
+
+  // Open deals → 미결제 시트
+  var openDeals = fetchDealsByStatus('open');
+  var openFiltered = [];
+  for (var j = 0; j < openDeals.length; j++) {
+    if (isRelevantDeal(openDeals[j])) openFiltered.push(openDeals[j]);
+  }
+  var openSheet = getOrCreateSheet('미결제');
+  writeDealsToSheet(openSheet, openFiltered, stageMap);
+  Logger.log('미결제: ' + openFiltered.length + '건');
+
+  // 캐시 워밍업
   try {
     var json = buildPaymentJson();
     cachePaymentJson(json);
@@ -67,16 +128,94 @@ function syncPipedriveData() {
   } catch(e) {
     Logger.log('캐시 워밍업 실패: ' + e.message);
   }
+
+  Logger.log('전체 동기화 완료');
 }
 
-function fetchStageMap() {
-  const map = {};
+// 배치 업데이트 (빠른 증분 동기화 - 트리거 전용)
+// Open 거래만 다시 가져오고, 새로 성사된 거래는 자동으로 결제완료로 이동
+function syncBatchUpdate() {
+  var stageMap = fetchStageMap();
+
+  // 1. 이전 미결제 ID 목록
+  var openSheet = getOrCreateSheet('미결제');
+  var prevOpenIds = getExistingDealIds(openSheet);
+
+  // 2. 현재 Open 거래 조회 (이것만 Pipedrive에서 가져옴 → 빠름!)
+  var openDeals = fetchDealsByStatus('open');
+  var openFiltered = [];
+  var currentOpenIds = {};
+  for (var i = 0; i < openDeals.length; i++) {
+    if (isRelevantDeal(openDeals[i])) {
+      openFiltered.push(openDeals[i]);
+      currentOpenIds[openDeals[i].id] = true;
+    }
+  }
+
+  // 3. 미결제에서 사라진 거래 → 성사 여부 확인
+  var wonSheet = getOrCreateSheet('결제완료');
+  var wonIds = getExistingDealIds(wonSheet);
+  var newWonDeals = [];
+
+  var prevKeys = Object.keys(prevOpenIds);
+  for (var k = 0; k < prevKeys.length; k++) {
+    var id = prevKeys[k];
+    if (currentOpenIds[id] || wonIds[id]) continue;
+    // 이 거래가 성사되었는지 개별 확인
+    var deal = fetchDealById(id);
+    if (deal && deal.won_time && isRelevantDeal(deal)) {
+      newWonDeals.push(deal);
+      wonIds[deal.id] = true;
+    }
+    Utilities.sleep(100);
+  }
+
+  // 4. 새로 성사된 거래 → 결제완료 시트에 추가
+  if (newWonDeals.length > 0) {
+    appendDealsToSheet(wonSheet, newWonDeals, stageMap);
+  }
+
+  // 5. 미결제 시트 갱신
+  writeDealsToSheet(openSheet, openFiltered, stageMap);
+
+  // 6. 캐시 워밍업
   try {
-    const url = `https://api.pipedrive.com/v1/stages?api_token=${PIPEDRIVE_API_KEY}`;
-    const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
-    const json = JSON.parse(response.getContentText());
+    var json = buildPaymentJson();
+    cachePaymentJson(json);
+  } catch(e) {
+    Logger.log('캐시 워밍업 실패: ' + e.message);
+  }
+
+  Logger.log('배치 완료: Open ' + openFiltered.length + '건, 신규Won ' + newWonDeals.length + '건');
+}
+
+// 배치 트리거 설정 (최초 1회 실행)
+function setupBatchTrigger() {
+  var triggers = ScriptApp.getProjectTriggers();
+  for (var i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === 'syncBatchUpdate') {
+      ScriptApp.deleteTrigger(triggers[i]);
+    }
+  }
+  ScriptApp.newTrigger('syncBatchUpdate')
+    .timeBased()
+    .everyHours(2)
+    .create();
+  Logger.log('배치 트리거 설정 완료: 2시간마다 syncBatchUpdate 실행');
+}
+
+// ========== Pipedrive API ==========
+
+function fetchStageMap() {
+  var map = {};
+  try {
+    var url = 'https://api.pipedrive.com/v1/stages?api_token=' + PIPEDRIVE_API_KEY;
+    var response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+    var json = JSON.parse(response.getContentText());
     if (json.success && json.data) {
-      json.data.forEach(stage => { map[stage.id] = stage.name; });
+      for (var i = 0; i < json.data.length; i++) {
+        map[json.data[i].id] = json.data[i].name;
+      }
     }
   } catch (e) {
     Logger.log('단계 조회 실패: ' + e.message);
@@ -84,536 +223,83 @@ function fetchStageMap() {
   return map;
 }
 
-function fetchDealsWithPaymentNotice() {
-  let allDeals = [];
-  
-  const wonDeals = fetchDealsByStatus('won');
-  allDeals = allDeals.concat(wonDeals);
-  Logger.log(`Won 거래: ${wonDeals.length}개`);
-  
-  const openDeals = fetchDealsByStatus('open');
-  allDeals = allDeals.concat(openDeals);
-  Logger.log(`Open 거래: ${openDeals.length}개`);
-  
-  const filteredDeals = allDeals.filter(deal => {
-    return deal[CUSTOM_FIELD_FIRST_PAYMENT_NOTICE] && 
-           deal[CUSTOM_FIELD_FIRST_PAYMENT_NOTICE] !== '';
-  });
-  
-  Logger.log(`결제안내가 있는 거래: ${filteredDeals.length}개`);
-  return filteredDeals;
-}
-
-function fetchAllDealsForSync() {
-  var wonDeals = fetchDealsByStatus('won');
-  var openDeals = fetchDealsByStatus('open');
-  var allDeals = wonDeals.concat(openDeals);
-  Logger.log('Won: ' + wonDeals.length + ', Open: ' + openDeals.length);
-
-  var filtered = allDeals.filter(function(deal) {
-    return (deal[CUSTOM_FIELD_FIRST_PAYMENT_NOTICE] && deal[CUSTOM_FIELD_FIRST_PAYMENT_NOTICE] !== '') ||
-           (deal[FIELD_APPLY_DATE] && deal[FIELD_APPLY_DATE] !== '') ||
-           (deal[FIELD_DEFENSE_DATE] && deal[FIELD_DEFENSE_DATE] !== '');
-  });
-
-  Logger.log('동기화 대상 (결제알림톡 OR 신청일자 OR 취소방어일): ' + filtered.length + '건');
-  return filtered;
-}
-
 function fetchDealsByStatus(status) {
-  let deals = [];
-  let start = 0;
-  const limit = 500;
-  let hasMore = true;
-  
+  var deals = [];
+  var start = 0;
+  var limit = 500;
+  var hasMore = true;
+
   while (hasMore) {
-    const url = `https://api.pipedrive.com/v1/deals?status=${status}&start=${start}&limit=${limit}&api_token=${PIPEDRIVE_API_KEY}`;
-    
+    var url = 'https://api.pipedrive.com/v1/deals?status=' + status + '&start=' + start + '&limit=' + limit + '&api_token=' + PIPEDRIVE_API_KEY;
     try {
-      const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
-      const json = JSON.parse(response.getContentText());
-      
+      var response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+      var json = JSON.parse(response.getContentText());
       if (json.success && json.data) {
         deals = deals.concat(json.data);
-        hasMore = json.additional_data?.pagination?.more_items_in_collection || false;
+        hasMore = (json.additional_data && json.additional_data.pagination && json.additional_data.pagination.more_items_in_collection) || false;
         start += limit;
         Utilities.sleep(200);
       } else {
         hasMore = false;
       }
     } catch (e) {
-      Logger.log(`API 오류 (${status}): ` + e.message);
+      Logger.log('API 오류 (' + status + '): ' + e.message);
       hasMore = false;
     }
   }
-  
   return deals;
 }
 
-// ========== 필터 기반 성과 요약 (신규) ==========
-
-// 필터 ID로 거래 가져오기
-function fetchDealsByFilter(filterId) {
-  let deals = [];
-  let start = 0;
-  const limit = 500;
-  let hasMore = true;
-  
-  while (hasMore) {
-    const url = `https://api.pipedrive.com/v1/deals?filter_id=${filterId}&start=${start}&limit=${limit}&api_token=${PIPEDRIVE_API_KEY}`;
-    
-    try {
-      const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
-      const json = JSON.parse(response.getContentText());
-      
-      if (json.success && json.data) {
-        deals = deals.concat(json.data);
-        hasMore = json.additional_data?.pagination?.more_items_in_collection || false;
-        start += limit;
-        Utilities.sleep(200);
-      } else {
-        hasMore = false;
-      }
-    } catch (e) {
-      Logger.log(`API 오류 (filter ${filterId}): ` + e.message);
-      hasMore = false;
-    }
-  }
-  
-  return deals;
-}
-
-// 필터 기반 성과 계산
-function calculatePerformanceByFilter() {
-  Logger.log('=== 필터 기반 성과 계산 ===');
-  
-  // 1. 신청전환 성공
-  const applyDeals = fetchDealsByFilter(FILTER_APPLY_SUCCESS);
-  let applyCount = 0;
-  let applyAmount = 0;
-  
-  applyDeals.forEach(deal => {
-    const refundAmount = parseFloat(deal[FIELD_REFUND_AMOUNT]) || 0;
-    if (refundAmount > 0) {
-      applyCount++;
-      applyAmount += refundAmount;
-    }
-  });
-  
-  Logger.log(`신청전환: ${applyDeals.length}건 조회, ${applyCount}건 환급액 있음, ${applyAmount.toLocaleString()}원`);
-  
-  // 2. 취소방어 성공
-  const defenseDeals = fetchDealsByFilter(FILTER_DEFENSE_SUCCESS);
-  let defenseCount = 0;
-  let defenseAmount = 0;
-  
-  defenseDeals.forEach(deal => {
-    const refundAmount = parseFloat(deal[FIELD_REFUND_AMOUNT]) || 0;
-    if (refundAmount > 0) {
-      defenseCount++;
-      defenseAmount += refundAmount;
-    }
-  });
-  
-  Logger.log(`취소방어: ${defenseDeals.length}건 조회, ${defenseCount}건 환급액 있음, ${defenseAmount.toLocaleString()}원`);
-  
-  // 결과
-  const total = applyAmount + defenseAmount;
-  Logger.log(`\n=== 결과 ===`);
-  Logger.log(`신청전환 성공: ${applyCount}건, ${applyAmount.toLocaleString()}원`);
-  Logger.log(`취소방어 성공: ${defenseCount}건, ${defenseAmount.toLocaleString()}원`);
-  Logger.log(`합계: ${total.toLocaleString()}원`);
-  
-  return {
-    apply: { count: applyCount, amount: applyAmount },
-    defense: { count: defenseCount, amount: defenseAmount },
-    total: total
-  };
-}
-
-// ========== 활동수 현황 (Activities API) ==========
-
-// 필터 ID로 활동 가져오기 (API v2 사용)
-function fetchActivitiesByFilter(filterId) {
-  let activities = [];
-  let cursor = null;
-  let hasMore = true;
-  
-  while (hasMore) {
-    let url = `https://api.pipedrive.com/api/v2/activities?filter_id=${filterId}&limit=500&api_token=${PIPEDRIVE_API_KEY}`;
-    if (cursor) {
-      url += `&cursor=${cursor}`;
-    }
-    
-    try {
-      const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
-      const json = JSON.parse(response.getContentText());
-      
-      if (json.success && json.data) {
-        activities = activities.concat(json.data);
-        cursor = json.additional_data?.next_cursor || null;
-        hasMore = cursor !== null;
-        Utilities.sleep(200);
-      } else {
-        Logger.log('Activities API 응답 실패: ' + JSON.stringify(json));
-        hasMore = false;
-      }
-    } catch (e) {
-      Logger.log(`Activities API 오류 (filter ${filterId}): ` + e.message);
-      hasMore = false;
-    }
-  }
-  
-  return activities;
-}
-
-// 활동 제목 분류 (신청 전환용)
-function classifyActivitySubject(subject) {
-  if (!subject) return null;
-  
-  const subjectLower = subject.toLowerCase();
-  
-  // 부재: "줍줍콜"과 "부재"가 모두 포함
-  if (subjectLower.includes('줍줍콜') && subjectLower.includes('부재')) {
-    return 'absent';
-  }
-  
-  // 활동: "줍줍콜" 포함 (부재 제외) 또는 "vip" 포함
-  if (subjectLower.includes('줍줍콜') || subjectLower.includes('vip')) {
-    return 'activity';
-  }
-  
-  // 사후관리
-  if (subjectLower.includes('사후관리')) {
-    return 'followup';
-  }
-  
-  // 문자: "문자발송" 또는 "문자안내"
-  if (subjectLower.includes('문자발송') || subjectLower.includes('문자안내')) {
-    return 'sms';
-  }
-  
-  return 'other';
-}
-
-// 활동 제목 분류 (취소방어용)
-function classifyDefenseActivitySubject(subject) {
-  if (!subject) return null;
-  
-  const subjectLower = subject.toLowerCase();
-  
-  // 부재: "취소방어"와 "부재"가 모두 포함
-  if (subjectLower.includes('취소방어') && subjectLower.includes('부재')) {
-    return 'absent';
-  }
-  
-  // 활동: "취소방어" 포함 (부재 제외)
-  if (subjectLower.includes('취소방어')) {
-    return 'activity';
-  }
-  
-  // 사후관리
-  if (subjectLower.includes('사후관리')) {
-    return 'followup';
-  }
-  
-  // 문자: "문자" 포함
-  if (subjectLower.includes('문자')) {
-    return 'sms';
-  }
-  
-  return 'other';
-}
-
-// 활동수 계산 (신청 전환)
-function calculateApplyActivityCount() {
-  Logger.log('=== 신청 전환 활동수 계산 ===');
-  
-  const activities = fetchActivitiesByFilter(FILTER_APPLY_ACTIVITY);
-  Logger.log(`총 활동 조회: ${activities.length}건`);
-  
-  let counts = {
-    activity: 0,  // 줍줍콜 + vip
-    absent: 0,    // 줍줍콜 부재
-    followup: 0,  // 사후관리
-    sms: 0,       // 문자
-    other: 0      // 기타
-  };
-  
-  activities.forEach(act => {
-    const subject = act.subject || '';
-    const category = classifyActivitySubject(subject);
-    if (category && counts.hasOwnProperty(category)) {
-      counts[category]++;
-    }
-  });
-  
-  Logger.log(`활동(줍줍콜+VIP): ${counts.activity}건`);
-  Logger.log(`부재: ${counts.absent}건`);
-  Logger.log(`사후관리: ${counts.followup}건`);
-  Logger.log(`문자: ${counts.sms}건`);
-  Logger.log(`기타: ${counts.other}건`);
-  
-  return counts;
-}
-
-// 활동수 계산 (취소방어)
-function calculateDefenseActivityCount() {
-  Logger.log('=== 취소방어 활동수 계산 ===');
-  
-  const activities = fetchActivitiesByFilter(FILTER_DEFENSE_ACTIVITY);
-  Logger.log(`총 활동 조회: ${activities.length}건`);
-  
-  let counts = {
-    activity: 0,  // 취소방어
-    absent: 0,    // 취소방어 부재
-    followup: 0,  // 사후관리
-    sms: 0,       // 문자
-    other: 0      // 기타
-  };
-  
-  activities.forEach(act => {
-    const subject = act.subject || '';
-    const category = classifyDefenseActivitySubject(subject);
-    if (category && counts.hasOwnProperty(category)) {
-      counts[category]++;
-    }
-  });
-  
-  Logger.log(`활동(취소방어): ${counts.activity}건`);
-  Logger.log(`부재: ${counts.absent}건`);
-  Logger.log(`사후관리: ${counts.followup}건`);
-  Logger.log(`문자: ${counts.sms}건`);
-  Logger.log(`기타: ${counts.other}건`);
-  
-  return counts;
-}
-
-// ========== 수동 입력 데이터 (Google Sheets 저장) ==========
-
-// 수동 데이터 저장
-function saveManualData(type, data) {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('수동입력');
-  if (!sheet) {
-    Logger.log('수동입력 시트를 찾을 수 없습니다.');
-    return false;
-  }
-  
-  const today = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd');
-  const dataRange = sheet.getDataRange();
-  const values = dataRange.getValues();
-  
-  // 기존 데이터 찾기 (같은 날짜, 같은 타입)
-  let rowIndex = -1;
-  for (let i = 1; i < values.length; i++) {
-    if (values[i][0] === today && values[i][1] === type) {
-      rowIndex = i + 1; // 1-based index
-      break;
-    }
-  }
-  
-  const jsonData = JSON.stringify(data);
-  
-  if (rowIndex > 0) {
-    // 기존 데이터 업데이트
-    sheet.getRange(rowIndex, 3).setValue(jsonData);
-    Logger.log(`${type} 데이터 업데이트: ${today}`);
-  } else {
-    // 새 데이터 추가
-    sheet.appendRow([today, type, jsonData]);
-    Logger.log(`${type} 데이터 추가: ${today}`);
-  }
-  
-  return true;
-}
-
-// 수동 데이터 읽기 (오늘 날짜)
-function loadManualData(type) {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('수동입력');
-  if (!sheet) {
-    Logger.log('수동입력 시트를 찾을 수 없습니다.');
+function fetchDealById(dealId) {
+  try {
+    var url = 'https://api.pipedrive.com/v1/deals/' + dealId + '?api_token=' + PIPEDRIVE_API_KEY;
+    var resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+    var json = JSON.parse(resp.getContentText());
+    return (json.success && json.data) ? json.data : null;
+  } catch(e) {
     return null;
   }
-  
-  const today = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd');
-  const dataRange = sheet.getDataRange();
-  const values = dataRange.getValues();
-  
-  for (let i = 1; i < values.length; i++) {
-    // 날짜 비교 (Date 객체 또는 문자열 모두 처리)
-    let rowDate = values[i][0];
-    if (rowDate instanceof Date) {
-      rowDate = Utilities.formatDate(rowDate, 'Asia/Seoul', 'yyyy-MM-dd');
-    } else if (typeof rowDate === 'string') {
-      rowDate = rowDate.trim();
-    }
-    
-    if (rowDate === today && values[i][1] === type) {
-      try {
-        return JSON.parse(values[i][2]);
-      } catch (e) {
-        Logger.log(`JSON 파싱 오류 (${type}): ${e.message}`);
-        return null;
+}
+
+function fetchDealsByFilter(filterId) {
+  var deals = [];
+  var start = 0;
+  var limit = 500;
+  var hasMore = true;
+
+  while (hasMore) {
+    var url = 'https://api.pipedrive.com/v1/deals?filter_id=' + filterId + '&start=' + start + '&limit=' + limit + '&api_token=' + PIPEDRIVE_API_KEY;
+    try {
+      var response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+      var json = JSON.parse(response.getContentText());
+      if (json.success && json.data) {
+        deals = deals.concat(json.data);
+        hasMore = (json.additional_data && json.additional_data.pagination && json.additional_data.pagination.more_items_in_collection) || false;
+        start += limit;
+        Utilities.sleep(200);
+      } else {
+        hasMore = false;
       }
+    } catch (e) {
+      Logger.log('API 오류 (filter ' + filterId + '): ' + e.message);
+      hasMore = false;
     }
   }
-  
-  return null;
+  return deals;
 }
 
-// 모든 수동 데이터 읽기 (오늘 날짜)
-function loadAllManualData() {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('수동입력');
-  if (!sheet) {
-    Logger.log('수동입력 시트를 찾을 수 없습니다.');
-    return { coverage: null, application: null, defense: null };
-  }
-  
-  const today = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd');
-  Logger.log('오늘 날짜: ' + today);
-  
-  const dataRange = sheet.getDataRange();
-  const values = dataRange.getValues();
-  
-  Logger.log('시트 데이터 행 수: ' + values.length);
-  
-  const result = {
-    coverage: null,
-    application: null,
-    defense: null,
-    target: null
-  };
-  
-  for (let i = 1; i < values.length; i++) {
-    // 날짜 비교 (Date 객체 또는 문자열 모두 처리)
-    let rowDate = values[i][0];
-    if (rowDate instanceof Date) {
-      rowDate = Utilities.formatDate(rowDate, 'Asia/Seoul', 'yyyy-MM-dd');
-    } else if (typeof rowDate === 'string') {
-      rowDate = rowDate.trim();
-    }
-    
-    Logger.log(`행 ${i}: 날짜="${rowDate}", 타입="${values[i][1]}"`);
-    
-    if (rowDate === today) {
-      const type = values[i][1];
-      if (result.hasOwnProperty(type)) {
-        try {
-          result[type] = JSON.parse(values[i][2]);
-          Logger.log(`${type} 데이터 로드 성공`);
-        } catch (e) {
-          Logger.log(`JSON 파싱 오류 (${type}): ${e.message}`);
-        }
-      }
-    }
-  }
-  
-  Logger.log('최종 결과: ' + JSON.stringify(result));
-  return result;
-}
+// ========== 결제 데이터 API ==========
 
-// ========== 웹 앱 API ==========
-function doGet(e) {
-  const action = e.parameter.action || 'payment';
-  
-  if (action === 'payment') {
-    return getPaymentData();
-  } else if (action === 'performance') {
-    var year = e.parameter.year ? parseInt(e.parameter.year) : null;
-    var month = e.parameter.month ? parseInt(e.parameter.month) : null;
-    return getPerformanceData(year, month);
-  } else if (action === 'activity') {
-    var aYear = e.parameter.year ? parseInt(e.parameter.year) : null;
-    var aMonth = e.parameter.month ? parseInt(e.parameter.month) : null;
-    return getActivityData(aYear, aMonth);
-  } else if (action === 'manual') {
-    return getManualData();
-  } else if (action === 'saveManual') {
-    // GET으로 수동 데이터 저장 (CORS 우회)
-    return saveManualDataViaGet(e);
-  }
-  
-  return ContentService
-    .createTextOutput(JSON.stringify({ success: false, error: 'Unknown action' }))
-    .setMimeType(ContentService.MimeType.JSON);
-}
-
-// GET 요청으로 수동 데이터 저장
-function saveManualDataViaGet(e) {
-  try {
-    const type = e.parameter.type;
-    const dataStr = e.parameter.data;
-    
-    if (!type || !dataStr) {
-      return ContentService
-        .createTextOutput(JSON.stringify({ success: false, error: 'Missing type or data' }))
-        .setMimeType(ContentService.MimeType.JSON);
-    }
-    
-    const data = JSON.parse(decodeURIComponent(dataStr));
-    const result = saveManualData(type, data);
-    
-    return ContentService
-      .createTextOutput(JSON.stringify({ success: result }))
-      .setMimeType(ContentService.MimeType.JSON);
-      
-  } catch (error) {
-    Logger.log('saveManualDataViaGet 오류: ' + error.message);
-    return ContentService
-      .createTextOutput(JSON.stringify({ success: false, error: error.message }))
-      .setMimeType(ContentService.MimeType.JSON);
-  }
-}
-
-// POST 요청 처리 (수동 데이터 저장)
-function doPost(e) {
-  try {
-    const data = JSON.parse(e.postData.contents);
-    const action = data.action;
-    
-    if (action === 'saveManual') {
-      const type = data.type;
-      const payload = data.data;
-      
-      if (!type || !payload) {
-        return ContentService
-          .createTextOutput(JSON.stringify({ success: false, error: 'Missing type or data' }))
-          .setMimeType(ContentService.MimeType.JSON);
-      }
-      
-      const result = saveManualData(type, payload);
-      
-      return ContentService
-        .createTextOutput(JSON.stringify({ success: result }))
-        .setMimeType(ContentService.MimeType.JSON);
-    }
-    
-    return ContentService
-      .createTextOutput(JSON.stringify({ success: false, error: 'Unknown action' }))
-      .setMimeType(ContentService.MimeType.JSON);
-      
-  } catch (error) {
-    Logger.log('doPost 오류: ' + error.message);
-    return ContentService
-      .createTextOutput(JSON.stringify({ success: false, error: error.message }))
-      .setMimeType(ContentService.MimeType.JSON);
-  }
-}
-
-// 결제 데이터 빌드 (캐시 워밍업 + API 공용)
-var CACHE_TTL = 21600; // 6시간 (sync 시 무효화되므로 길어도 OK)
-
-function buildPaymentJson() {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('결제데이터');
-  var data = sheet.getDataRange().getValues();
-  var rows = data.slice(1);
+function processSheetRows(sheet) {
+  if (!sheet || sheet.getLastRow() <= 1) return [];
+  var rows = sheet.getDataRange().getValues().slice(1);
+  var result = [];
 
   var toStr = function(v) {
     if (!v || v === '') return '';
     if (v instanceof Date) return Utilities.formatDate(v, 'Asia/Seoul', 'yyyy-MM-dd');
     return String(v);
   };
-
   var getYear = function(v) {
     if (!v || v === '') return 0;
     if (v instanceof Date) return v.getFullYear();
@@ -622,29 +308,44 @@ function buildPaymentJson() {
     return isNaN(y) ? 0 : y;
   };
 
-  var result = [];
   for (var i = 0; i < rows.length; i++) {
     var row = rows[i];
     var noticeYear = getYear(row[3]);
     var wonYear = getYear(row[4]);
-    var wonTime = toStr(row[4]);
-    // 2025년 이전에 결제 완료된 거래는 제외 (open 거래는 유지)
     if (noticeYear > 0 && noticeYear < 2025 && wonYear > 0 && wonYear < 2025) continue;
-
     result.push({
       deal_id: row[0],
       title: row[1],
       value: Number(row[2]) || 0,
       first_payment_notice: toStr(row[3]),
-      won_time: wonTime,
+      won_time: toStr(row[4]),
       collection_order_date: toStr(row[5]),
       balance: Number(row[6]) || 0,
       stage_name: row[7] || '',
       customer_type: row[8] || ''
     });
   }
+  return result;
+}
 
-  return JSON.stringify({ success: true, data: result });
+function buildPaymentJson() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var wonSheet = ss.getSheetByName('결제완료');
+  var openSheet = ss.getSheetByName('미결제');
+
+  if (wonSheet && openSheet) {
+    var wonData = processSheetRows(wonSheet);
+    var openData = processSheetRows(openSheet);
+    return JSON.stringify({ success: true, data: wonData.concat(openData) });
+  }
+
+  // 하위 호환: 기존 단일 시트 지원
+  var oldSheet = ss.getSheetByName('결제데이터');
+  if (oldSheet) {
+    return JSON.stringify({ success: true, data: processSheetRows(oldSheet) });
+  }
+
+  return JSON.stringify({ success: true, data: [] });
 }
 
 function cachePaymentJson(json) {
@@ -652,8 +353,7 @@ function cachePaymentJson(json) {
   try {
     cache.remove('paymentData');
     cache.remove('paymentData_chunks');
-    var numOld = 20;
-    for (var r = 0; r < numOld; r++) cache.remove('paymentData_' + r);
+    for (var r = 0; r < 20; r++) cache.remove('paymentData_' + r);
   } catch(e) {}
 
   try {
@@ -669,7 +369,6 @@ function cachePaymentJson(json) {
   }
 }
 
-// 결제 데이터 API (CacheService 적용)
 function getPaymentData() {
   var cache = CacheService.getScriptCache();
   var cached = cache.get('paymentData');
@@ -693,11 +392,37 @@ function getPaymentData() {
 
   var json = buildPaymentJson();
   cachePaymentJson(json);
-
   return ContentService.createTextOutput(json).setMimeType(ContentService.MimeType.JSON);
 }
 
-// 성과 요약 API (year/month 지정 가능 - 필터 날짜 자동 변경)
+// ========== 필터 기반 성과 요약 ==========
+
+function calculatePerformanceByFilter() {
+  Logger.log('=== 필터 기반 성과 계산 ===');
+
+  var applyDeals = fetchDealsByFilter(FILTER_APPLY_SUCCESS);
+  var applyCount = 0, applyAmount = 0;
+  for (var i = 0; i < applyDeals.length; i++) {
+    var ra = parseFloat(applyDeals[i][FIELD_REFUND_AMOUNT]) || 0;
+    if (ra > 0) { applyCount++; applyAmount += ra; }
+  }
+  Logger.log('신청전환: ' + applyDeals.length + '건 조회, ' + applyCount + '건 환급액');
+
+  var defenseDeals = fetchDealsByFilter(FILTER_DEFENSE_SUCCESS);
+  var defenseCount = 0, defenseAmount = 0;
+  for (var j = 0; j < defenseDeals.length; j++) {
+    var rd = parseFloat(defenseDeals[j][FIELD_REFUND_AMOUNT]) || 0;
+    if (rd > 0) { defenseCount++; defenseAmount += rd; }
+  }
+  Logger.log('취소방어: ' + defenseDeals.length + '건 조회, ' + defenseCount + '건 환급액');
+
+  return {
+    apply: { count: applyCount, amount: applyAmount },
+    defense: { count: defenseCount, amount: defenseAmount },
+    total: applyAmount + defenseAmount
+  };
+}
+
 function getPerformanceData(year, month) {
   if (year && month) {
     updateFilterToMonth(FILTER_APPLY_SUCCESS, year, month);
@@ -709,7 +434,8 @@ function getPerformanceData(year, month) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
-// Pipedrive 필터의 날짜 조건을 지정 월로 변경 (나머지 조건 보존)
+// ========== 필터 날짜 변경 (조건 보존) ==========
+
 function updateFilterToMonth(filterId, year, month) {
   try {
     var getUrl = 'https://api.pipedrive.com/v1/filters/' + filterId + '?api_token=' + PIPEDRIVE_API_KEY;
@@ -741,7 +467,7 @@ function updateFilterToMonth(filterId, year, month) {
         newGroup.push({ object: obj, field_id: fid, operator: '<', value: endDate, extra_value: null });
         dateReplaced = true;
       } else if (isDateCond && dateReplaced) {
-        // 이전 날짜 범위 조건 스킵
+        // skip
       } else {
         newGroup.push(c);
       }
@@ -757,7 +483,78 @@ function updateFilterToMonth(filterId, year, month) {
   } catch (e) { Logger.log('필터 업데이트 실패: ' + e.message); }
 }
 
-// 활동수 API (year/month 지정 가능 - 필터 날짜 자동 변경)
+// ========== 활동수 현황 ==========
+
+function fetchActivitiesByFilter(filterId) {
+  var activities = [];
+  var cursor = null;
+  var hasMore = true;
+
+  while (hasMore) {
+    var url = 'https://api.pipedrive.com/api/v2/activities?filter_id=' + filterId + '&limit=500&api_token=' + PIPEDRIVE_API_KEY;
+    if (cursor) url += '&cursor=' + cursor;
+
+    try {
+      var response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+      var json = JSON.parse(response.getContentText());
+      if (json.success && json.data) {
+        activities = activities.concat(json.data);
+        cursor = (json.additional_data && json.additional_data.next_cursor) ? json.additional_data.next_cursor : null;
+        hasMore = cursor !== null;
+        Utilities.sleep(200);
+      } else {
+        hasMore = false;
+      }
+    } catch (e) {
+      Logger.log('Activities API 오류: ' + e.message);
+      hasMore = false;
+    }
+  }
+  return activities;
+}
+
+function classifyActivitySubject(subject) {
+  if (!subject) return null;
+  var s = subject.toLowerCase();
+  if (s.indexOf('줍줍콜') >= 0 && s.indexOf('부재') >= 0) return 'absent';
+  if (s.indexOf('줍줍콜') >= 0 || s.indexOf('vip') >= 0) return 'activity';
+  if (s.indexOf('사후관리') >= 0) return 'followup';
+  if (s.indexOf('문자발송') >= 0 || s.indexOf('문자안내') >= 0) return 'sms';
+  return 'other';
+}
+
+function classifyDefenseActivitySubject(subject) {
+  if (!subject) return null;
+  var s = subject.toLowerCase();
+  if (s.indexOf('취소방어') >= 0 && s.indexOf('부재') >= 0) return 'absent';
+  if (s.indexOf('취소방어') >= 0) return 'activity';
+  if (s.indexOf('사후관리') >= 0) return 'followup';
+  if (s.indexOf('문자') >= 0) return 'sms';
+  return 'other';
+}
+
+function calculateApplyActivityCount() {
+  var activities = fetchActivitiesByFilter(FILTER_APPLY_ACTIVITY);
+  var counts = { activity: 0, absent: 0, followup: 0, sms: 0, other: 0 };
+  for (var i = 0; i < activities.length; i++) {
+    var cat = classifyActivitySubject(activities[i].subject || '');
+    if (cat && counts.hasOwnProperty(cat)) counts[cat]++;
+  }
+  Logger.log('신청전환 활동: ' + JSON.stringify(counts));
+  return counts;
+}
+
+function calculateDefenseActivityCount() {
+  var activities = fetchActivitiesByFilter(FILTER_DEFENSE_ACTIVITY);
+  var counts = { activity: 0, absent: 0, followup: 0, sms: 0, other: 0 };
+  for (var i = 0; i < activities.length; i++) {
+    var cat = classifyDefenseActivitySubject(activities[i].subject || '');
+    if (cat && counts.hasOwnProperty(cat)) counts[cat]++;
+  }
+  Logger.log('취소방어 활동: ' + JSON.stringify(counts));
+  return counts;
+}
+
 function getActivityData(year, month) {
   if (year && month) {
     updateFilterToMonth(FILTER_APPLY_ACTIVITY, year, month);
@@ -765,146 +562,114 @@ function getActivityData(year, month) {
   }
   var applyActivity = calculateApplyActivityCount();
   var defenseActivity = calculateDefenseActivityCount();
-  
+
   return ContentService
-    .createTextOutput(JSON.stringify({ 
-      success: true, 
-      data: {
-        apply: applyActivity,
-        defense: defenseActivity
-      }
+    .createTextOutput(JSON.stringify({
+      success: true,
+      data: { apply: applyActivity, defense: defenseActivity }
     }))
     .setMimeType(ContentService.MimeType.JSON);
 }
 
-// 수동 입력 데이터 API (읽기)
-function getManualData() {
-  const data = loadAllManualData();
-  
+// ========== 수동 입력 데이터 ==========
+
+function saveManualData(type, data) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('수동입력');
+  if (!sheet) return false;
+
+  var today = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd');
+  var values = sheet.getDataRange().getValues();
+  var rowIndex = -1;
+
+  for (var i = 1; i < values.length; i++) {
+    if (values[i][0] === today && values[i][1] === type) {
+      rowIndex = i + 1;
+      break;
+    }
+  }
+
+  if (rowIndex > 0) {
+    sheet.getRange(rowIndex, 3).setValue(JSON.stringify(data));
+  } else {
+    sheet.appendRow([today, type, JSON.stringify(data)]);
+  }
+  return true;
+}
+
+function loadAllManualData() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('수동입력');
+  if (!sheet) return { coverage: null, application: null, defense: null, target: null };
+
+  var today = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd');
+  var values = sheet.getDataRange().getValues();
+  var result = { coverage: null, application: null, defense: null, target: null };
+
+  for (var i = 1; i < values.length; i++) {
+    var rowDate = values[i][0];
+    if (rowDate instanceof Date) {
+      rowDate = Utilities.formatDate(rowDate, 'Asia/Seoul', 'yyyy-MM-dd');
+    } else if (typeof rowDate === 'string') {
+      rowDate = rowDate.trim();
+    }
+    if (rowDate === today && result.hasOwnProperty(values[i][1])) {
+      try { result[values[i][1]] = JSON.parse(values[i][2]); } catch(e) {}
+    }
+  }
+  return result;
+}
+
+// ========== 웹 앱 API ==========
+
+function doGet(e) {
+  var action = e.parameter.action || 'payment';
+
+  if (action === 'payment') {
+    return getPaymentData();
+  } else if (action === 'performance') {
+    var year = e.parameter.year ? parseInt(e.parameter.year) : null;
+    var month = e.parameter.month ? parseInt(e.parameter.month) : null;
+    return getPerformanceData(year, month);
+  } else if (action === 'activity') {
+    var aYear = e.parameter.year ? parseInt(e.parameter.year) : null;
+    var aMonth = e.parameter.month ? parseInt(e.parameter.month) : null;
+    return getActivityData(aYear, aMonth);
+  } else if (action === 'manual') {
+    return ContentService
+      .createTextOutput(JSON.stringify({ success: true, data: loadAllManualData() }))
+      .setMimeType(ContentService.MimeType.JSON);
+  } else if (action === 'saveManual') {
+    return saveManualDataViaGet(e);
+  }
+
   return ContentService
-    .createTextOutput(JSON.stringify({ 
-      success: true, 
-      data: data
-    }))
+    .createTextOutput(JSON.stringify({ success: false, error: 'Unknown action' }))
     .setMimeType(ContentService.MimeType.JSON);
 }
 
-// ========== 테스트 함수 ==========
-
-// 성과 테스트 (필터 기반)
-function testPerformance() {
-  calculatePerformanceByFilter();
-}
-
-// 신청전환만 테스트
-function testApplyByFilter() {
-  const deals = fetchDealsByFilter(FILTER_APPLY_SUCCESS);
-  Logger.log('신청전환 필터 조회: ' + deals.length + '건');
-  
-  let totalAmount = 0;
-  let count = 0;
-  
-  deals.forEach(deal => {
-    const refundAmount = parseFloat(deal[FIELD_REFUND_AMOUNT]) || 0;
-    if (refundAmount > 0) {
-      totalAmount += refundAmount;
-      count++;
+function saveManualDataViaGet(e) {
+  try {
+    var type = e.parameter.type;
+    var dataStr = e.parameter.data;
+    if (!type || !dataStr) {
+      return ContentService.createTextOutput(JSON.stringify({ success: false, error: 'Missing params' })).setMimeType(ContentService.MimeType.JSON);
     }
-  });
-  
-  Logger.log('조회환급액 있는 거래: ' + count + '건');
-  Logger.log('신청전환 성공 금액: ' + totalAmount.toLocaleString() + '원');
-}
-
-// 취소방어만 테스트
-function testDefenseByFilter() {
-  const deals = fetchDealsByFilter(FILTER_DEFENSE_SUCCESS);
-  Logger.log('취소방어 필터 조회: ' + deals.length + '건');
-  
-  let totalAmount = 0;
-  let count = 0;
-  
-  deals.forEach(deal => {
-    const refundAmount = parseFloat(deal[FIELD_REFUND_AMOUNT]) || 0;
-    if (refundAmount > 0) {
-      totalAmount += refundAmount;
-      count++;
-    }
-  });
-  
-  Logger.log('조회환급액 있는 거래: ' + count + '건');
-  Logger.log('취소방어 성공 금액: ' + totalAmount.toLocaleString() + '원');
-}
-
-// API 연결 테스트
-function testConnection() {
-  const url = `https://api.pipedrive.com/v1/deals?status=won&limit=1&api_token=${PIPEDRIVE_API_KEY}`;
-  const response = UrlFetchApp.fetch(url);
-  Logger.log(response.getContentText());
-}
-
-// 활동수 테스트 (신청 전환)
-function testApplyActivity() {
-  calculateApplyActivityCount();
-}
-
-// 활동수 테스트 (취소방어)
-function testDefenseActivity() {
-  calculateDefenseActivityCount();
-}
-
-// 활동 제목 샘플 확인 (디버깅용)
-function checkActivitySubjects() {
-  const activities = fetchActivitiesByFilter(FILTER_APPLY_ACTIVITY);
-  
-  Logger.log('=== 활동 제목 샘플 (처음 20개) ===');
-  for (let i = 0; i < Math.min(20, activities.length); i++) {
-    const act = activities[i];
-    const subject = act.subject || '(제목없음)';
-    const category = classifyActivitySubject(subject);
-    Logger.log(`${i+1}. "${subject}" → ${category}`);
+    var data = JSON.parse(decodeURIComponent(dataStr));
+    var result = saveManualData(type, data);
+    return ContentService.createTextOutput(JSON.stringify({ success: result })).setMimeType(ContentService.MimeType.JSON);
+  } catch (error) {
+    return ContentService.createTextOutput(JSON.stringify({ success: false, error: error.message })).setMimeType(ContentService.MimeType.JSON);
   }
 }
 
-// 지급명령 단계 필드 디버깅
-function testCollectionOrderField() {
-  Logger.log('=== 지급명령 단계 필드 확인 ===');
-  Logger.log('필드 키: ' + CUSTOM_FIELD_COLLECTION_ORDER);
-  
-  // Won 거래 중 처음 5개에서 해당 필드 확인
-  const url = `https://api.pipedrive.com/v1/deals?status=won&start=0&limit=5&api_token=${PIPEDRIVE_API_KEY}`;
-  const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
-  const json = JSON.parse(response.getContentText());
-  
-  if (json.success && json.data) {
-    json.data.forEach((deal, i) => {
-      const fieldValue = deal[CUSTOM_FIELD_COLLECTION_ORDER];
-      Logger.log(`거래 ${i+1} (ID: ${deal.id}, ${deal.title})`);
-      Logger.log(`  → 지급명령 단계 값: "${fieldValue}" (타입: ${typeof fieldValue})`);
-      
-      // 해당 거래의 모든 커스텀 필드 키 중 '69b9'로 시작하는 것 찾기
-      const keys = Object.keys(deal).filter(k => k.includes('69b9'));
-      if (keys.length > 0) {
-        Logger.log(`  → '69b9' 포함 키: ${keys.join(', ')}`);
-        keys.forEach(k => Logger.log(`     ${k} = "${deal[k]}"`));
-      }
-    });
-  }
-  
-  // 시트에서 F열 데이터 확인
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('결제데이터');
-  const lastRow = Math.min(sheet.getLastRow(), 20);
-  if (lastRow > 1) {
-    const fCol = sheet.getRange(2, 6, lastRow - 1, 1).getValues();
-    let hasData = 0;
-    fCol.forEach((row, i) => {
-      if (row[0] && row[0] !== '') {
-        hasData++;
-        if (hasData <= 5) {
-          Logger.log(`시트 F열 (행 ${i+2}): "${row[0]}"`);
-        }
-      }
-    });
-    Logger.log(`F열에 데이터가 있는 행: ${hasData}개 (처음 ${lastRow-1}행 중)`);
+function doPost(e) {
+  try {
+    var data = JSON.parse(e.postData.contents);
+    if (data.action === 'saveManual' && data.type && data.data) {
+      var result = saveManualData(data.type, data.data);
+      return ContentService.createTextOutput(JSON.stringify({ success: result })).setMimeType(ContentService.MimeType.JSON);
+    }
+    return ContentService.createTextOutput(JSON.stringify({ success: false, error: 'Unknown action' })).setMimeType(ContentService.MimeType.JSON);
+  } catch (error) {
+    return ContentService.createTextOutput(JSON.stringify({ success: false, error: error.message })).setMimeType(ContentService.MimeType.JSON);
   }
 }
