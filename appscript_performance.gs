@@ -100,15 +100,11 @@ function isRelevantDeal(deal) {
 function syncPipedriveData() {
   var stageMap = fetchStageMap();
 
-  // Won deals → 결제완료 시트
+  // Won deals → 결제완료 시트 (필터 없이 전부 포함 → 연간 누적 정확도)
   var wonDeals = fetchDealsByStatus('won');
-  var wonFiltered = [];
-  for (var i = 0; i < wonDeals.length; i++) {
-    if (isRelevantDeal(wonDeals[i])) wonFiltered.push(wonDeals[i]);
-  }
   var wonSheet = getOrCreateSheet('결제완료');
-  writeDealsToSheet(wonSheet, wonFiltered, stageMap);
-  Logger.log('결제완료: ' + wonFiltered.length + '건');
+  writeDealsToSheet(wonSheet, wonDeals, stageMap);
+  Logger.log('결제완료: ' + wonDeals.length + '건');
 
   // Open deals → 미결제 시트
   var openDeals = fetchDealsByStatus('open');
@@ -163,7 +159,7 @@ function syncBatchUpdate() {
     if (currentOpenIds[id] || wonIds[id]) continue;
     // 이 거래가 성사되었는지 개별 확인
     var deal = fetchDealById(id);
-    if (deal && deal.won_time && isRelevantDeal(deal)) {
+    if (deal && deal.won_time) {
       newWonDeals.push(deal);
       wonIds[deal.id] = true;
     }
