@@ -2100,6 +2100,8 @@ const PAYMENT_API_URL = PERFORMANCE_API_URL;
 let sharedDataPromise = null;
 const LOCAL_CACHE_KEY = 'kpi_payment_data';
 const LOCAL_CACHE_TS_KEY = 'kpi_payment_data_ts';
+const LOCAL_CACHE_VER_KEY = 'kpi_payment_data_ver';
+const LOCAL_CACHE_VERSION = '2';
 const LOCAL_CACHE_TTL = 10 * 60 * 1000; // 10분
 
 function preprocessData(data) {
@@ -2132,11 +2134,17 @@ function saveToLocalCache(rawData) {
     try {
         localStorage.setItem(LOCAL_CACHE_KEY, JSON.stringify(rawData));
         localStorage.setItem(LOCAL_CACHE_TS_KEY, Date.now().toString());
+        localStorage.setItem(LOCAL_CACHE_VER_KEY, LOCAL_CACHE_VERSION);
     } catch (e) { /* quota exceeded - skip */ }
 }
 
 function loadFromLocalCache() {
     try {
+        if (localStorage.getItem(LOCAL_CACHE_VER_KEY) !== LOCAL_CACHE_VERSION) {
+            localStorage.removeItem(LOCAL_CACHE_KEY);
+            localStorage.removeItem(LOCAL_CACHE_TS_KEY);
+            return null;
+        }
         const ts = localStorage.getItem(LOCAL_CACHE_TS_KEY);
         const raw = localStorage.getItem(LOCAL_CACHE_KEY);
         if (!ts || !raw) return null;
@@ -2319,6 +2327,25 @@ async function prefetchData() {
         const data = await fetchSharedData();
         paymentDataCache = data;
         collectionDataCache = data;
+        pyDataLoaded = true;
+
+        const activeTab = document.querySelector('.tab-btn.active')?.dataset.tab;
+        if (activeTab === 'payment') {
+            updatePaymentMonthDisplay();
+            calculateAndDisplayMonthlyPayment(data);
+            calculateAndDisplayWeeklyKPIs(data);
+            const loadingEl = document.getElementById('payment-loading');
+            const contentEl = document.getElementById('payment-content');
+            if (loadingEl) loadingEl.style.display = 'none';
+            if (contentEl) contentEl.style.display = 'block';
+        }
+        if (activeTab === 'payment-yearly' || true) {
+            calculatePaymentYearlyKPIs(data);
+            const pyLoading = document.getElementById('py-loading');
+            const pyContent = document.getElementById('py-content');
+            if (pyLoading) pyLoading.style.display = 'none';
+            if (pyContent) pyContent.style.display = 'block';
+        }
     } catch (e) {
         console.warn('프리페치 실패:', e.message);
     }
