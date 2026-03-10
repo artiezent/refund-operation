@@ -3054,7 +3054,14 @@ function initCollectionTab() {
     const collectionTabBtn = document.querySelector('[data-tab="collection"]');
     if (collectionTabBtn) {
         collectionTabBtn.addEventListener('click', () => {
-            if (!collectionDataCache) {
+            if (collectionDataCache) {
+                calculateAndDisplayCollectionKPIs(collectionDataCache);
+                calculateYearlyCollectionTracking(collectionDataCache);
+                const ld = document.getElementById('collection-loading');
+                const ct = document.getElementById('collection-content');
+                if (ld) ld.style.display = 'none';
+                if (ct) ct.style.display = 'block';
+            } else {
                 loadCollectionData();
             }
         });
