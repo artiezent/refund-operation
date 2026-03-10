@@ -290,7 +290,7 @@ function fetchDealsByFilter(filterId) {
 
 // ========== 결제 데이터 API ==========
 
-function processSheetRows(sheet) {
+function processSheetToArrays(sheet) {
   if (!sheet || sheet.getLastRow() <= 1) return [];
   var rows = sheet.getDataRange().getValues().slice(1);
   var result = [];
@@ -313,17 +313,12 @@ function processSheetRows(sheet) {
     var noticeYear = getYear(row[3]);
     var wonYear = getYear(row[4]);
     if (noticeYear > 0 && noticeYear < 2025 && wonYear > 0 && wonYear < 2025) continue;
-    result.push({
-      deal_id: row[0],
-      title: row[1],
-      value: Number(row[2]) || 0,
-      first_payment_notice: toStr(row[3]),
-      won_time: toStr(row[4]),
-      collection_order_date: toStr(row[5]),
-      balance: Number(row[6]) || 0,
-      stage_name: row[7] || '',
-      customer_type: row[8] || ''
-    });
+    // [deal_id, title, value, notice, won, collection, balance, stage, customer_type]
+    result.push([
+      row[0], row[1], Number(row[2]) || 0,
+      toStr(row[3]), toStr(row[4]), toStr(row[5]),
+      Number(row[6]) || 0, row[7] || '', row[8] || ''
+    ]);
   }
   return result;
 }
@@ -333,19 +328,20 @@ function buildPaymentJson() {
   var wonSheet = ss.getSheetByName('결제완료');
   var openSheet = ss.getSheetByName('미결제');
 
+  var allRows;
   if (wonSheet && openSheet) {
-    var wonData = processSheetRows(wonSheet);
-    var openData = processSheetRows(openSheet);
-    return JSON.stringify({ success: true, data: wonData.concat(openData) });
+    allRows = processSheetToArrays(wonSheet).concat(processSheetToArrays(openSheet));
+  } else {
+    var oldSheet = ss.getSheetByName('결제데이터');
+    allRows = oldSheet ? processSheetToArrays(oldSheet) : [];
   }
 
-  // 하위 호환: 기존 단일 시트 지원
-  var oldSheet = ss.getSheetByName('결제데이터');
-  if (oldSheet) {
-    return JSON.stringify({ success: true, data: processSheetRows(oldSheet) });
-  }
-
-  return JSON.stringify({ success: true, data: [] });
+  // cols+rows 형식: 필드명 반복 없어서 응답 크기 40-50% 감소
+  return JSON.stringify({
+    success: true,
+    cols: ['deal_id','title','value','first_payment_notice','won_time','collection_order_date','balance','stage_name','customer_type'],
+    rows: allRows
+  });
 }
 
 function cachePaymentJson(json) {

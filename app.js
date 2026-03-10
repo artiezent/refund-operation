@@ -2144,6 +2144,17 @@ function loadFromLocalCache() {
     } catch (e) { return null; }
 }
 
+function convertRowsToObjects(result) {
+    if (result.data) return result.data;
+    if (!result.cols || !result.rows) return [];
+    const cols = result.cols;
+    return result.rows.map(r => {
+        const obj = {};
+        for (let i = 0; i < cols.length; i++) obj[cols[i]] = r[i];
+        return obj;
+    });
+}
+
 async function fetchFromNetwork() {
     const maxRetries = 2;
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -2152,8 +2163,9 @@ async function fetchFromNetwork() {
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const result = await response.json();
             if (!result.success) throw new Error('API 실패');
-            saveToLocalCache(result.data);
-            return preprocessData(result.data);
+            const data = convertRowsToObjects(result);
+            saveToLocalCache(data);
+            return preprocessData(data);
         } catch (e) {
             console.warn(`네트워크 시도 ${attempt}/${maxRetries} 실패:`, e.message);
             if (attempt === maxRetries) throw e;
