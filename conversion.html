@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>전환파트 Dashboard</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <div class="dashboard-content">
+            <header class="header">
+                <h1 class="logo">전환파트</h1>
+                <div class="date-display" id="currentDate"></div>
+            </header>
+
+            <!-- 0. 성과 요약 섹션 -->
+            <div class="kpi-section performance-summary">
+                <div class="section-header">
+                    <h2 class="section-title">성과 요약</h2>
+                    <div class="month-selector">
+                        <button class="month-btn" onclick="changePerfMonth(-1)">◀</button>
+                        <span class="current-month" id="selected-perf-month">2026년 3월</span>
+                        <button class="month-btn" onclick="changePerfMonth(1)">▶</button>
+                    </div>
+                </div>
+
+                <!-- 로딩 상태 -->
+                <div class="loading-container" id="perf-loading" style="display: none;">
+                    <div class="loading-spinner"></div>
+                    <p>성과 데이터를 불러오는 중...</p>
+                </div>
+
+                <!-- 에러 상태 -->
+                <div class="error-container" id="perf-error" style="display: none;">
+                    <div class="error-icon">⚠️</div>
+                    <p id="perf-error-message">데이터 로딩에 실패했습니다.</p>
+                    <button class="btn btn-primary btn-sm" onclick="loadPerformanceSummary()">다시 시도</button>
+                </div>
+
+                <!-- 성과 카드 컨텐츠 -->
+                <div id="perf-content">
+                    <!-- 성과 카드 - 1행: 신청전환/취소방어 -->
+                    <div class="kpi-grid kpi-grid-2">
+                        <!-- 신청전환 성공 -->
+                        <div class="kpi-card">
+                            <div class="kpi-header">
+                                <h3 class="kpi-title">신청전환 성공</h3>
+                                <span class="kpi-badge badge-blue">Apply</span>
+                            </div>
+                            <div class="kpi-value" id="perf-apply-amount">₩0</div>
+                            <div class="kpi-breakdown">
+                                <div class="breakdown-row">
+                                    <span class="breakdown-label">건수</span>
+                                    <span class="breakdown-value" id="perf-apply-count">0건</span>
+                                </div>
+                            </div>
+                            <div class="kpi-formula">줍줍콜 담당자 기준 · 거래 생성일 기준</div>
+                        </div>
+                        
+                        <!-- 취소방어 성공 -->
+                        <div class="kpi-card">
+                            <div class="kpi-header">
+                                <h3 class="kpi-title">취소방어 성공</h3>
+                                <span class="kpi-badge badge-green">Defense</span>
+                            </div>
+                            <div class="kpi-value" id="perf-defense-amount">₩0</div>
+                            <div class="kpi-breakdown">
+                                <div class="breakdown-row">
+                                    <span class="breakdown-label">건수</span>
+                                    <span class="breakdown-value" id="perf-defense-count">0건</span>
+                                </div>
+                            </div>
+                            <div class="kpi-formula">취소방어 담당자 기준 · 취소방어일 기준</div>
+                        </div>
+                    </div>
+                    
+                    <!-- 성과 카드 - 2행: 합계 -->
+                    <div class="kpi-grid" style="margin-top: 20px;">
+                        <!-- 합계 (목표 대비) -->
+                        <div class="kpi-card">
+                            <div class="kpi-header">
+                                <h3 class="kpi-title">합계 (목표 대비)</h3>
+                                <span class="kpi-badge badge-purple">Total</span>
+                            </div>
+                            <div class="kpi-value" id="perf-total-amount">₩0</div>
+                            <div class="kpi-progress">
+                                <div class="progress-bar" id="perf-progress-fill" style="width: 0%"></div>
+                            </div>
+                            <div class="kpi-breakdown">
+                                <div class="breakdown-row">
+                                    <span class="breakdown-label">진행률</span>
+                                    <span class="breakdown-value" id="perf-progress-rate">0%</span>
+                                </div>
+                                <div class="breakdown-row">
+                                    <span class="breakdown-label">목표 금액</span>
+                                    <span class="breakdown-value" id="perf-target-display">₩0</span>
+                                </div>
+                                <div class="breakdown-row">
+                                    <span class="breakdown-label">신청전환</span>
+                                    <span class="breakdown-value" id="perf-apply-summary">₩0</span>
+                                </div>
+                                <div class="breakdown-row">
+                                    <span class="breakdown-label">취소방어</span>
+                                    <span class="breakdown-value" id="perf-defense-summary">₩0</span>
+                                </div>
+                            </div>
+                            <!-- 목표금액 입력 (캡처 시 숨김) -->
+                            <div class="target-input-row hide-on-capture">
+                                <label for="perf-target-input">목표금액:</label>
+                                <input type="text" id="perf-target-input" placeholder="예: 5억" onchange="saveTargetAmount()" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 데이터 갱신 정보 -->
+                    <div class="data-info" style="margin-top: 16px;">
+                        <span class="info-label">마지막 동기화:</span>
+                        <span class="info-value" id="perf-sync-time">-</span>
+                        <button class="btn btn-sm btn-secondary" onclick="loadPerformanceSummary()">🔄 새로고침</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 1. 커버리지 현황 섹션 -->
+            <div class="kpi-section">
+                <div class="section-header">
+                    <h2 class="section-title">커버리지 현황</h2>
+                    <button class="toggle-input-btn" data-target="coverage-input">
+                        <span class="toggle-icon">+</span> 데이터 입력
+                    </button>
+                </div>
+                
+                <!-- 커버리지 입력 영역 -->
+                <div class="input-panel" id="coverage-input">
+                    <div class="input-panel-header">
+                        <span class="input-source-badge">Pipedrive</span>
+                        <span class="input-hint">복사용 커버리지 대시보드에서 복사</span>
+                    </div>
+                    <textarea 
+                        id="coverageDataInput" 
+                        class="data-textarea" 
+                        placeholder="Pipedrive '복사용 커버리지' 대시보드에서 복사한 데이터를 붙여넣으세요..."
+                        rows="8"
+                    ></textarea>
+                    <div class="button-group">
+                        <button class="btn btn-primary btn-sm" onclick="applyCoverageData()">적용</button>
+                        <button class="btn btn-secondary btn-sm" onclick="clearCoverageData()">초기화</button>
+                    </div>
+                </div>
+
+                <div class="kpi-grid kpi-grid-2">
+                    <!-- 커버리지 현황 (건수) -->
+                    <div class="kpi-card" id="coverage-count-card">
+                        <div class="kpi-header">
+                            <h3 class="kpi-title">커버리지 (건수)</h3>
+                            <span class="kpi-badge">Count</span>
+                        </div>
+                        <div class="kpi-value" id="coverage-count-rate">0%</div>
+                        <div class="kpi-progress">
+                            <div class="progress-bar" id="coverage-count-bar" style="width: 0%"></div>
+                        </div>
+                        <div class="kpi-formula">
+                            (전환 성공 + 컨택 진행) / (전환 성공 + 미전환)
+                        </div>
+                        <div class="kpi-breakdown">
+                            <div class="breakdown-row">
+                                <span class="breakdown-label">전환 성공 건수</span>
+                                <span class="breakdown-value" id="success-count">0</span>
+                            </div>
+                            <div class="breakdown-row">
+                                <span class="breakdown-label">컨택 진행 건수</span>
+                                <span class="breakdown-value" id="contact-count">0</span>
+                            </div>
+                            <div class="breakdown-row">
+                                <span class="breakdown-label">미전환 건수</span>
+                                <span class="breakdown-value" id="unconverted-count">0</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 커버리지 현황 (금액) -->
+                    <div class="kpi-card" id="coverage-amount-card">
+                        <div class="kpi-header">
+                            <h3 class="kpi-title">커버리지 (금액)</h3>
+                            <span class="kpi-badge badge-green">Amount</span>
+                        </div>
+                        <div class="kpi-value" id="coverage-amount-rate">0%</div>
+                        <div class="kpi-progress">
+                            <div class="progress-bar" id="coverage-amount-bar" style="width: 0%"></div>
+                        </div>
+                        <div class="kpi-formula">
+                            (전환 성공 + 컨택 진행) / (전환 성공 + 미전환)
+                        </div>
+                        <div class="kpi-breakdown">
+                            <div class="breakdown-row">
+                                <span class="breakdown-label">전환 성공 금액</span>
+                                <span class="breakdown-value" id="success-amount">₩0</span>
+                            </div>
+                            <div class="breakdown-row">
+                                <span class="breakdown-label">컨택 진행 금액</span>
+                                <span class="breakdown-value" id="contact-amount">₩0</span>
+                            </div>
+                            <div class="breakdown-row">
+                                <span class="breakdown-label">미전환 금액</span>
+                                <span class="breakdown-value" id="unconverted-amount">₩0</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 2. 활동수 현황 섹션 -->
+            <div class="kpi-section">
+                <div class="section-header">
+                    <h2 class="section-title">활동수 현황</h2>
+                    <span class="current-month" style="font-size: 14px; color: var(--text-secondary);">이번 달</span>
+                </div>
+
+                <!-- 로딩 상태 -->
+                <div class="loading-container" id="activity-loading" style="display: none;">
+                    <div class="loading-spinner"></div>
+                    <p>활동 데이터를 불러오는 중...</p>
+                </div>
+
+                <!-- 에러 상태 -->
+                <div class="error-container" id="activity-error" style="display: none;">
+                    <div class="error-icon">⚠️</div>
+                    <p id="activity-error-message">데이터 로딩에 실패했습니다.</p>
+                    <button class="btn btn-primary btn-sm" onclick="loadActivityStatus()">다시 시도</button>
+                </div>
+
+                <!-- 활동수 컨텐츠 -->
+                <div id="activity-content">
+                <div class="kpi-grid kpi-grid-2">
+                    <!-- 신청 전환 활동수 -->
+                    <div class="kpi-card" id="activity-apply-card">
+                        <div class="kpi-header">
+                            <h3 class="kpi-title">신청 전환 활동수</h3>
+                            <span class="kpi-badge">줍줍콜</span>
+                        </div>
+                        <div class="chart-container">
+                            <div class="bar-chart">
+                                <div class="bar-group">
+                                    <div class="bar-wrapper">
+                                        <div class="bar bar-stacked" id="apply-total-bar" data-value="0">
+                                            <div class="bar-segment segment-absent" id="apply-absent-segment"></div>
+                                            <div class="bar-segment segment-activity" id="apply-activity-segment"></div>
+                                            <span class="bar-label">총 활동</span>
+                                        </div>
+                                        <div class="bar-tooltip" id="apply-total-tooltip">
+                                            <div class="tooltip-title">총 활동수</div>
+                                            <div class="tooltip-row"><span class="legend-activity">줍줍 활동</span><span id="tt-apply-activity">0</span></div>
+                                            <div class="tooltip-row"><span class="legend-absent">줍줍 부재</span><span id="tt-apply-absent">0</span></div>
+                                            <div class="tooltip-total"><span>합계</span><span id="tt-apply-total">0</span></div>
+                                        </div>
+                                    </div>
+                                    <div class="bar-value" id="apply-total-value">0</div>
+                                </div>
+                                <div class="bar-group">
+                                    <div class="bar-wrapper">
+                                        <div class="bar bar-stacked bar-sub-stacked" id="apply-extra-bar" data-value="0">
+                                            <div class="bar-segment segment-sms" id="apply-sms-segment"></div>
+                                            <div class="bar-segment segment-followup" id="apply-followup-segment"></div>
+                                            <span class="bar-label">부가활동</span>
+                                        </div>
+                                        <div class="bar-tooltip" id="apply-extra-tooltip">
+                                            <div class="tooltip-title">부가활동수</div>
+                                            <div class="tooltip-row"><span class="legend-followup">사후관리</span><span id="tt-apply-followup">0</span></div>
+                                            <div class="tooltip-row"><span class="legend-sms">신청 문자</span><span id="tt-apply-sms">0</span></div>
+                                            <div class="tooltip-total"><span>합계</span><span id="tt-apply-extra">0</span></div>
+                                        </div>
+                                    </div>
+                                    <div class="bar-value" id="apply-extra-value">0</div>
+                                </div>
+                            </div>
+                            <div class="chart-legend">
+                                <div class="legend-item"><span class="legend-dot activity"></span>활동</div>
+                                <div class="legend-item"><span class="legend-dot absent"></span>부재</div>
+                                <div class="legend-item"><span class="legend-dot followup"></span>사후관리</div>
+                                <div class="legend-item"><span class="legend-dot sms"></span>문자</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 취소 방어 활동수 -->
+                    <div class="kpi-card" id="activity-defense-card">
+                        <div class="kpi-header">
+                            <h3 class="kpi-title">취소 방어 활동수</h3>
+                            <span class="kpi-badge badge-green">취소방어</span>
+                        </div>
+                        <div class="chart-container">
+                            <div class="bar-chart">
+                                <div class="bar-group">
+                                    <div class="bar-wrapper">
+                                        <div class="bar bar-stacked" id="defense-total-bar" data-value="0">
+                                            <div class="bar-segment segment-absent" id="defense-absent-segment"></div>
+                                            <div class="bar-segment segment-activity" id="defense-activity-segment"></div>
+                                            <span class="bar-label">총 활동</span>
+                                        </div>
+                                        <div class="bar-tooltip" id="defense-total-tooltip">
+                                            <div class="tooltip-title">총 활동수</div>
+                                            <div class="tooltip-row"><span class="legend-activity">취소 활동</span><span id="tt-defense-activity">0</span></div>
+                                            <div class="tooltip-row"><span class="legend-absent">취소 부재</span><span id="tt-defense-absent">0</span></div>
+                                            <div class="tooltip-total"><span>합계</span><span id="tt-defense-total">0</span></div>
+                                        </div>
+                                    </div>
+                                    <div class="bar-value" id="defense-total-value">0</div>
+                                </div>
+                                <div class="bar-group">
+                                    <div class="bar-wrapper">
+                                        <div class="bar bar-stacked bar-sub-stacked" id="defense-extra-bar" data-value="0">
+                                            <div class="bar-segment segment-sms" id="defense-sms-segment"></div>
+                                            <div class="bar-segment segment-followup" id="defense-followup-segment"></div>
+                                            <span class="bar-label">부가활동</span>
+                                        </div>
+                                        <div class="bar-tooltip" id="defense-extra-tooltip">
+                                            <div class="tooltip-title">부가활동수</div>
+                                            <div class="tooltip-row"><span class="legend-followup">사후관리</span><span id="tt-defense-followup">0</span></div>
+                                            <div class="tooltip-row"><span class="legend-sms">취소 문자</span><span id="tt-defense-sms">0</span></div>
+                                            <div class="tooltip-total"><span>합계</span><span id="tt-defense-extra">0</span></div>
+                                        </div>
+                                    </div>
+                                    <div class="bar-value" id="defense-extra-value">0</div>
+                                </div>
+                            </div>
+                            <div class="chart-legend">
+                                <div class="legend-item"><span class="legend-dot activity"></span>활동</div>
+                                <div class="legend-item"><span class="legend-dot absent"></span>부재</div>
+                                <div class="legend-item"><span class="legend-dot followup"></span>사후관리</div>
+                                <div class="legend-item"><span class="legend-dot sms"></span>문자</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                    <!-- 데이터 갱신 정보 -->
+                    <div class="data-info" style="margin-top: 16px;">
+                        <span class="info-label">마지막 동기화:</span>
+                        <span class="info-value" id="activity-sync-time">-</span>
+                        <button class="btn btn-sm btn-secondary" onclick="loadActivityStatus()">🔄 새로고침</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 3. 총조회대비 신청전환 섹션 -->
+            <div class="kpi-section">
+                <div class="section-header">
+                    <h2 class="section-title">총조회대비 신청전환</h2>
+                    <button class="toggle-input-btn" data-target="application-input">
+                        <span class="toggle-icon">+</span> 데이터 입력
+                    </button>
+                </div>
+                
+                <!-- 신청전환 입력 영역 -->
+                <div class="input-panel" id="application-input">
+                    <div class="input-panel-header">
+                        <span class="input-source-badge">Pipedrive</span>
+                        <span class="input-hint">복사용 총조회 총취소 대시보드에서 복사</span>
+                    </div>
+                    <textarea 
+                        id="applicationDataInput" 
+                        class="data-textarea" 
+                        placeholder="Pipedrive '월별 대시보드'에서 복사한 데이터를 붙여넣으세요..."
+                        rows="8"
+                    ></textarea>
+                    <div class="button-group">
+                        <button class="btn btn-primary btn-sm" onclick="applyApplicationData()">적용</button>
+                        <button class="btn btn-secondary btn-sm" onclick="clearApplicationData()">초기화</button>
+                    </div>
+                </div>
+
+                <div class="kpi-grid kpi-grid-2">
+                    <!-- 총조회 대비 전체 신청률 -->
+                    <div class="kpi-card" id="apply-total-rate-card">
+                        <div class="kpi-header">
+                            <h3 class="kpi-title">총조회 대비 전체 신청률</h3>
+                            <span class="kpi-badge">신청</span>
+                        </div>
+                        <div class="kpi-value" id="apply-total-rate-rate">0%</div>
+                        <div class="kpi-progress">
+                            <div class="progress-bar" id="apply-total-rate-bar" style="width: 0%"></div>
+                        </div>
+                        <div class="kpi-formula">
+                            조회 신청 / 총조회
+                        </div>
+                        <div class="kpi-breakdown">
+                            <div class="breakdown-row">
+                                <span class="breakdown-label">총조회</span>
+                                <span class="breakdown-value" id="total-view-amount">₩0</span>
+                            </div>
+                            <div class="breakdown-row">
+                                <span class="breakdown-label">조회 신청</span>
+                                <span class="breakdown-value" id="total-apply-amount">₩0</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 총조회 대비 전환 성공률 -->
+                    <div class="kpi-card" id="apply-success-rate-card">
+                        <div class="kpi-header">
+                            <h3 class="kpi-title">총조회 대비 전환 성공률</h3>
+                            <span class="kpi-badge badge-green">전환</span>
+                        </div>
+                        <div class="kpi-value" id="apply-success-rate-rate">0%</div>
+                        <div class="kpi-progress">
+                            <div class="progress-bar" id="apply-success-rate-bar" style="width: 0%"></div>
+                        </div>
+                        <div class="kpi-formula">
+                            전환 성공 / 총조회
+                        </div>
+                        <div class="kpi-breakdown">
+                            <div class="breakdown-row">
+                                <span class="breakdown-label">총조회</span>
+                                <span class="breakdown-value" id="total-view-amount2">₩0</span>
+                            </div>
+                            <div class="breakdown-row">
+                                <span class="breakdown-label">전환 성공</span>
+                                <span class="breakdown-value" id="apply-convert-amount">₩0</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 4. 총검토대비 취소방어 섹션 -->
+            <div class="kpi-section">
+                <div class="section-header">
+                    <h2 class="section-title">총검토대비 취소방어</h2>
+                    <button class="toggle-input-btn" data-target="defense-input">
+                        <span class="toggle-icon">+</span> 데이터 입력
+                    </button>
+                </div>
+                
+                <!-- 취소방어 입력 영역 -->
+                <div class="input-panel" id="defense-input">
+                    <div class="input-panel-header">
+                        <span class="input-source-badge">Pipedrive</span>
+                        <span class="input-hint">복사용 총조회 총취소 대시보드에서 복사</span>
+                    </div>
+                    <textarea 
+                        id="defenseDataInput" 
+                        class="data-textarea" 
+                        placeholder="Pipedrive '월별 대시보드'에서 복사한 데이터를 붙여넣으세요..."
+                        rows="8"
+                    ></textarea>
+                    <div class="button-group">
+                        <button class="btn btn-primary btn-sm" onclick="applyDefenseData()">적용</button>
+                        <button class="btn btn-secondary btn-sm" onclick="clearDefenseData()">초기화</button>
+                    </div>
+                </div>
+
+                <div class="kpi-grid kpi-grid-2">
+                    <!-- 전체취소 대비 검토완료율 -->
+                    <div class="kpi-card" id="cancel-review-rate-card">
+                        <div class="kpi-header">
+                            <h3 class="kpi-title">전체취소 대비 검토완료율</h3>
+                            <span class="kpi-badge">검토</span>
+                        </div>
+                        <div class="kpi-value" id="cancel-review-rate-rate">0%</div>
+                        <div class="kpi-progress">
+                            <div class="progress-bar" id="cancel-review-rate-bar" style="width: 0%"></div>
+                        </div>
+                        <div class="kpi-formula">
+                            검토완료 / 전체취소
+                        </div>
+                        <div class="kpi-breakdown">
+                            <div class="breakdown-row">
+                                <span class="breakdown-label">전체취소</span>
+                                <span class="breakdown-value" id="cancel-request-amount">₩0</span>
+                            </div>
+                            <div class="breakdown-row">
+                                <span class="breakdown-label">검토완료</span>
+                                <span class="breakdown-value" id="cancel-available-amount">₩0</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 검토완료대비 취소방어 성공률 -->
+                    <div class="kpi-card" id="cancel-defense-rate-card">
+                        <div class="kpi-header">
+                            <h3 class="kpi-title">검토완료대비 방어 성공률</h3>
+                            <span class="kpi-badge badge-green">방어</span>
+                        </div>
+                        <div class="kpi-value" id="cancel-defense-rate-rate">0%</div>
+                        <div class="kpi-progress">
+                            <div class="progress-bar" id="cancel-defense-rate-bar" style="width: 0%"></div>
+                        </div>
+                        <div class="kpi-formula">
+                            취소방어 성공 / 검토완료
+                        </div>
+                        <div class="kpi-breakdown">
+                            <div class="breakdown-row">
+                                <span class="breakdown-label">검토완료</span>
+                                <span class="breakdown-value" id="cancel-available-amount2">₩0</span>
+                            </div>
+                            <div class="breakdown-row">
+                                <span class="breakdown-label">취소방어 성공</span>
+                                <span class="breakdown-value" id="cancel-success-amount">₩0</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script src="shared.js"></script>
+    <script src="conversion.js"></script>
+</body>
+</html>

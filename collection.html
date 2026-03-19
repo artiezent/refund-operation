@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>추심 대시보드</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <div class="dashboard-content">
+            <header class="header">
+                <h1 class="logo">추심</h1>
+                <div class="header-actions">
+                    <button class="action-btn" onclick="refreshAllData()" title="새로고침">
+                        <span class="action-icon">🔄</span>
+                        <span class="action-label">새로고침</span>
+                    </button>
+                </div>
+                <div class="date-display" id="currentDate"></div>
+            </header>
+
+            <!-- 데이터 로딩 상태 -->
+            <div class="loading-container" id="collection-loading">
+                <div class="loading-spinner"></div>
+                <p>추심 데이터를 불러오는 중...</p>
+            </div>
+
+            <!-- 에러 상태 -->
+            <div class="error-container" id="collection-error" style="display: none;">
+                <div class="error-icon">⚠️</div>
+                <h3>데이터 로딩 실패</h3>
+                <p id="collection-error-message">네트워크 오류가 발생했습니다.</p>
+                <button class="btn btn-primary btn-sm" onclick="loadCollectionData()">다시 시도</button>
+            </div>
+
+            <!-- 추심 대시보드 컨텐츠 -->
+            <div class="payment-dashboard" id="collection-content" style="display: none;">
+
+                <!-- 추심 현황 섹션 -->
+                <div class="kpi-section">
+                    <div class="section-header">
+                        <h2 class="section-title">추심 현황</h2>
+                        <div class="month-selector">
+                            <button class="month-btn" onclick="changeCollectionMonth(-1)">◀</button>
+                            <span class="current-month" id="selected-collection-month">2026년 2월</span>
+                            <button class="month-btn" onclick="changeCollectionMonth(1)">▶</button>
+                        </div>
+                    </div>
+
+                    <div class="kpi-grid kpi-grid-2">
+                        <!-- 환급완료 카드 -->
+                        <div class="kpi-card">
+                            <div class="kpi-header">
+                                <h3 class="kpi-title">환급완료</h3>
+                                <span class="kpi-badge badge-blue" id="col-refund-badge">1월 기준</span>
+                            </div>
+                            <div class="kpi-value" id="col-refund-amount">₩0</div>
+                            <div class="kpi-breakdown">
+                                <div class="breakdown-row">
+                                    <span class="breakdown-label">환급 건수</span>
+                                    <span class="breakdown-value" id="col-refund-count">0건</span>
+                                </div>
+                            </div>
+                            <div class="kpi-formula">
+                                전월 환급결정 알림톡 발송 총 가치금액
+                            </div>
+                        </div>
+
+                        <!-- 이관총액 카드 -->
+                        <div class="kpi-card">
+                            <div class="kpi-header">
+                                <h3 class="kpi-title">이관총액</h3>
+                                <span class="kpi-badge badge-purple" id="col-transfer-badge">2월 기준</span>
+                            </div>
+                            <div class="kpi-value" id="col-transfer-amount">₩0</div>
+                            <div class="kpi-breakdown">
+                                <div class="breakdown-row">
+                                    <span class="breakdown-label">이관 건수</span>
+                                    <span class="breakdown-value" id="col-transfer-count">0건</span>
+                                </div>
+                            </div>
+                            <div class="kpi-formula">
+                                해당월 '지급명령 단계' 날짜 기준 총 가치금액
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 비율 카드 (전체 너비) -->
+                    <div class="kpi-grid" style="margin-top: 20px;">
+                        <div class="kpi-card">
+                            <div class="kpi-header">
+                                <h3 class="kpi-title">이관 비율</h3>
+                                <span class="kpi-badge badge-green">Ratio</span>
+                            </div>
+                            <div class="kpi-value" id="col-ratio-value">0%</div>
+                            <div class="kpi-progress">
+                                <div class="progress-bar" id="col-ratio-bar" style="width: 0%"></div>
+                            </div>
+                            <div class="kpi-breakdown">
+                                <div class="breakdown-row">
+                                    <span class="breakdown-label">환급완료 금액</span>
+                                    <span class="breakdown-value" id="col-ratio-refund">₩0</span>
+                                </div>
+                                <div class="breakdown-row">
+                                    <span class="breakdown-label">이관총액</span>
+                                    <span class="breakdown-value" id="col-ratio-transfer">₩0</span>
+                                </div>
+                            </div>
+                            <div class="kpi-formula">
+                                이관총액 / 환급완료 금액 × 100
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 연간 이관 결제 추적 섹션 -->
+                <div class="kpi-section">
+                    <div class="section-header">
+                        <h2 class="section-title">연간 이관 결제 추적</h2>
+                        <div class="month-selector">
+                            <button class="month-btn" onclick="changeCollectionYear(-1)">◀</button>
+                            <span class="current-month" id="selected-collection-year">2026년</span>
+                            <button class="month-btn" onclick="changeCollectionYear(1)">▶</button>
+                        </div>
+                    </div>
+
+                    <div class="yearly-table-wrapper">
+                        <table class="yearly-collection-table" id="yearly-collection-table">
+                            <thead>
+                                <tr>
+                                    <th class="yt-month yt-sticky-col" style="left:0;z-index:3;">월</th>
+                                    <th class="yt-summary yt-sticky-col" style="left:48px;z-index:3;">이관</th>
+                                    <th class="yt-summary yt-sticky-col" style="left:148px;z-index:3;">성사</th>
+                                    <th class="yt-rate">+0</th>
+                                    <th class="yt-rate">+1</th>
+                                    <th class="yt-rate">+2</th>
+                                    <th class="yt-rate">+3</th>
+                                    <th class="yt-rate">+4</th>
+                                    <th class="yt-rate">+5</th>
+                                    <th class="yt-rate">+6</th>
+                                    <th class="yt-rate">+7</th>
+                                    <th class="yt-rate">+8</th>
+                                    <th class="yt-rate">+9</th>
+                                    <th class="yt-rate">+10</th>
+                                    <th class="yt-rate">+11</th>
+                                    <th class="yt-rate">+12~</th>
+                                    <th class="yt-rate yt-unpaid">미결</th>
+                                </tr>
+                            </thead>
+                            <tbody id="yearly-collection-body">
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- 로우데이터 상세 영역 -->
+                    <div id="yt-detail-panel" class="yt-detail-panel" style="display:none;">
+                        <div class="yt-detail-header">
+                            <span id="yt-detail-title" class="yt-detail-title"></span>
+                            <button class="btn btn-sm btn-secondary" onclick="closeYtDetail()">✕ 닫기</button>
+                        </div>
+                        <div class="yt-detail-body">
+                            <table class="yt-detail-table">
+                                <thead>
+                                    <tr>
+                                        <th>No.</th>
+                                        <th>거래명</th>
+                                        <th>단계</th>
+                                        <th>금액</th>
+                                        <th id="yt-balance-header" style="cursor:pointer;" onclick="sortYtDetailByBalance()">잔액 ▼</th>
+                                        <th>이관일</th>
+                                        <th>결제일</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="yt-detail-tbody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="conversion-legend" style="margin-top: 12px;">
+                        <div class="legend-note">
+                            <span class="legend-icon">💡</span>
+                            <span>+N = 이관 N개월 후 결제 (예: 2월 이관 → 4월 결제 = +2)</span>
+                        </div>
+                        <div class="legend-note" style="margin-top: 6px;">
+                            <span style="display:inline-block;width:12px;height:12px;background:rgba(16,185,129,0.3);border-radius:3px;vertical-align:middle;margin-right:4px;"></span>
+                            <span style="font-size:12px;color:var(--text-secondary);">1억 이상</span>
+                            <span style="display:inline-block;width:12px;height:12px;background:rgba(245,158,11,0.3);border-radius:3px;vertical-align:middle;margin:0 4px 0 12px;"></span>
+                            <span style="font-size:12px;color:var(--text-secondary);">1천만 이상</span>
+                            <span style="display:inline-block;width:12px;height:12px;background:rgba(239,68,68,0.3);border-radius:3px;vertical-align:middle;margin:0 4px 0 12px;"></span>
+                            <span style="font-size:12px;color:var(--text-secondary);">1천만 미만</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 데이터 갱신 정보 -->
+                <div class="data-info">
+                    <span class="info-label">마지막 동기화:</span>
+                    <span class="info-value" id="collection-last-sync-time">-</span>
+                    <button class="btn btn-sm btn-secondary" onclick="refreshAllData()">🔄 새로고침</button>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <script src="shared.js"></script>
+    <script src="collection.js"></script>
+</body>
+</html>

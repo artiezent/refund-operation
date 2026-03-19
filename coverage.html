@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>결제콜 커버리지</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { background: #f5f7fa; margin: 0; padding: 16px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #1e293b; }
+
+        .cov-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+        .cov-header h1 { font-size: 22px; margin: 0; }
+        .cov-header .date { color: #64748b; font-size: 13px; }
+        .header-right { display: flex; gap: 12px; align-items: center; }
+        .month-nav { display: flex; align-items: center; gap: 8px; }
+        .month-nav button { background: #e2e8f0; border: none; border-radius: 6px; padding: 6px 12px; cursor: pointer; font-size: 14px; }
+        .month-nav button:hover { background: #cbd5e1; }
+        .month-nav span { font-weight: 600; font-size: 15px; min-width: 100px; text-align: center; }
+        .refresh-btn { background: #818cf8; color: #fff; border: none; border-radius: 6px; padding: 8px 16px; cursor: pointer; font-size: 13px; }
+        .refresh-btn:hover { background: #6366f1; }
+
+        .section { background: #fff; border-radius: 12px; padding: 24px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+        .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+        .section-title { font-size: 17px; font-weight: 700; }
+        .section-sub { font-size: 12px; color: #94a3b8; margin-top: 2px; }
+
+        .period-toggle { display: flex; background: #f1f5f9; border-radius: 8px; padding: 3px; gap: 2px; }
+        .period-btn { padding: 6px 16px; border: none; background: transparent; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; color: #64748b; transition: all 0.2s; }
+        .period-btn.active { background: #fff; color: #1e293b; box-shadow: 0 1px 2px rgba(0,0,0,0.1); font-weight: 600; }
+
+        .kpi-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+        .kpi-card { background: #f8fafc; border-radius: 10px; padding: 20px; }
+        .kpi-card.primary { background: linear-gradient(135deg, #eef2ff, #e0e7ff); border: 1px solid #c7d2fe; }
+        .kpi-card .kpi-title { font-size: 12px; color: #64748b; margin-bottom: 8px; font-weight: 500; }
+        .kpi-card .kpi-value { font-size: 32px; font-weight: 800; line-height: 1; }
+        .kpi-card .kpi-value.good { color: #16a34a; }
+        .kpi-card .kpi-value.warn { color: #d97706; }
+        .kpi-card .kpi-value.neutral { color: #1e293b; }
+        .kpi-card .kpi-sub { font-size: 12px; color: #94a3b8; margin-top: 6px; }
+
+        .bar-wrap { background: #f1f5f9; border-radius: 8px; height: 32px; position: relative; overflow: hidden; margin-bottom: 8px; }
+        .bar-fill { height: 100%; border-radius: 8px; transition: width 0.6s ease; display: flex; align-items: center; justify-content: flex-end; padding-right: 10px; }
+        .bar-fill.purple { background: linear-gradient(90deg, #a5b4fc, #6366f1); }
+        .bar-fill.green { background: linear-gradient(90deg, #86efac, #22c55e); }
+        .bar-fill span { font-size: 12px; font-weight: 700; color: #fff; }
+        .bar-label { display: flex; justify-content: space-between; font-size: 12px; color: #94a3b8; }
+
+        .detail-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 16px; padding-top: 16px; border-top: 1px solid #f1f5f9; }
+        .detail-item .dt-label { font-size: 11px; color: #94a3b8; margin-bottom: 2px; }
+        .detail-item .dt-value { font-size: 18px; font-weight: 700; }
+
+        .table-section { background: #fff; border-radius: 12px; padding: 24px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+        .tab-row { display: flex; gap: 4px; margin-bottom: 16px; }
+        .tab-btn { padding: 8px 16px; border: none; background: #e2e8f0; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; }
+        .tab-btn.active { background: #818cf8; color: #fff; }
+        .table-wrap { max-height: 500px; overflow: auto; border: 1px solid #e2e8f0; border-radius: 8px; }
+        .data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        .data-table th { background: #f8fafc; padding: 8px 10px; text-align: left; font-weight: 600; color: #475569; border-bottom: 2px solid #e2e8f0; position: sticky; top: 0; }
+        .data-table td { padding: 7px 10px; border-bottom: 1px solid #f1f5f9; }
+        .data-table tr:hover td { background: #f8fafc; }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+        .badge.y { background: #dcfce7; color: #166534; }
+        .badge.n { background: #fef2f2; color: #991b1b; }
+        .badge.auto { background: #ede9fe; color: #5b21b6; }
+
+        .loading { text-align: center; padding: 40px; color: #64748b; }
+        .placeholder-section { background: #fff; border-radius: 12px; padding: 24px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); opacity: 0.5; }
+    </style>
+</head>
+<body>
+    <div class="cov-header">
+        <div>
+            <h1>결제콜 커버리지</h1>
+            <div class="date" id="currentDate"></div>
+        </div>
+        <div class="header-right">
+            <div class="month-nav">
+                <button onclick="changeMonth(-1)">◀</button>
+                <span id="monthDisplay"></span>
+                <button onclick="changeMonth(1)">▶</button>
+            </div>
+            <button class="refresh-btn" onclick="loadData()">새로고침</button>
+        </div>
+    </div>
+
+    <div id="loading" class="loading">데이터 불러오는 중...</div>
+
+    <div id="content" style="display:none;">
+
+        <!-- 고액 결제콜 커버리지 -->
+        <div class="section" id="highSection">
+            <div class="section-header">
+                <div>
+                    <div class="section-title">고액 결제콜 커버리지</div>
+                    <div class="section-sub">가치 100만원 이상 · 자동결제(0~2일) 제외</div>
+                </div>
+                <div class="period-toggle" id="highToggle">
+                    <button class="period-btn active" onclick="setPeriod('high','month')">당월</button>
+                    <button class="period-btn" onclick="setPeriod('high','year')">누적 (2026)</button>
+                </div>
+            </div>
+            <div id="highKPI"></div>
+        </div>
+
+        <!-- 전체 결제콜 커버리지 -->
+        <div class="section" id="totalSection">
+            <div class="section-header">
+                <div>
+                    <div class="section-title">전체 결제콜 커버리지</div>
+                    <div class="section-sub">금액 무관 · 자동결제(0~2일) 제외</div>
+                </div>
+                <div class="period-toggle" id="totalToggle">
+                    <button class="period-btn active" onclick="setPeriod('total','month')">당월</button>
+                    <button class="period-btn" onclick="setPeriod('total','year')">누적 (2026)</button>
+                </div>
+            </div>
+            <div id="totalKPI"></div>
+        </div>
+
+        <!-- 상세 데이터 테이블 -->
+        <div class="table-section">
+            <div class="section-header">
+                <div class="section-title">상세 데이터</div>
+            </div>
+            <div class="tab-row">
+                <button class="tab-btn active" onclick="showTab('high_noauto')">고액 비자동</button>
+                <button class="tab-btn" onclick="showTab('high_all')">고액 전체</button>
+                <button class="tab-btn" onclick="showTab('all_noauto')">전체 비자동</button>
+                <button class="tab-btn" onclick="showTab('all')">전체</button>
+                <button class="tab-btn" onclick="showTab('nocall')">미컨택</button>
+            </div>
+            <div class="table-wrap">
+                <table class="data-table" id="dataTable">
+                    <thead id="tableHead"></thead>
+                    <tbody id="tableBody"></tbody>
+                </table>
+            </div>
+            <div id="tableCount" style="margin-top:8px;font-size:12px;color:#94a3b8;"></div>
+        </div>
+    </div>
+
+    <script src="shared.js"></script>
+    <script src="coverage.js"></script>
+</body>
+</html>

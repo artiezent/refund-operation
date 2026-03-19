@@ -771,6 +771,94 @@ function clearDefenseData() {
 }
 
 // ==========================================
+// 결제콜 커버리지 수동 입력
+// ==========================================
+
+function applyPaymentCoverageData() {
+    const input = document.getElementById('paymentCoverageDataInput');
+    const inputText = input.value.trim();
+    if (!inputText) { showToast('데이터를 입력해주세요.', 'error'); return; }
+    const lines = inputText.split('\n').map(line => line.trim());
+    const parsed = parsePaymentCoverageLines(lines);
+    applyPaymentCoverageFromData(parsed, 'mp');
+    showToast('저장 중...');
+    saveManualDataToSheets('paymentCoverage', parsed).then(saved => {
+        closeInputPanel('payment-coverage-input');
+        showToast(saved ? '결제콜 커버리지가 업데이트되었습니다!' : '저장에 실패했습니다.', saved ? undefined : 'error');
+    });
+}
+
+function applyPyPaymentCoverageData() {
+    const input = document.getElementById('pyPaymentCoverageDataInput');
+    const inputText = input.value.trim();
+    if (!inputText) { showToast('데이터를 입력해주세요.', 'error'); return; }
+    const lines = inputText.split('\n').map(line => line.trim());
+    const parsed = parsePaymentCoverageLines(lines);
+    applyPaymentCoverageFromData(parsed, 'py');
+    showToast('저장 중...');
+    saveManualDataToSheets('pyPaymentCoverage', parsed).then(saved => {
+        closeInputPanel('py-payment-coverage-input');
+        showToast(saved ? '연간 결제콜 커버리지가 업데이트되었습니다!' : '저장에 실패했습니다.', saved ? undefined : 'error');
+    });
+}
+
+function parsePaymentCoverageLines(lines) {
+    return {
+        highRate: findAmountByKeyword(lines, 'KPI_고액커버리지'),
+        highCovered: findAmountByKeyword(lines, 'KPI_고액활동건수'),
+        highTotal: findAmountByKeyword(lines, 'KPI_고액대상건수'),
+        high3dRate: findAmountByKeyword(lines, 'KPI_고액3일완료율'),
+        totalRate: findAmountByKeyword(lines, 'KPI_전체커버리지'),
+        totalCovered: findAmountByKeyword(lines, 'KPI_전체활동건수'),
+        totalTotal: findAmountByKeyword(lines, 'KPI_전체대상건수')
+    };
+}
+
+function applyPaymentCoverageFromData(data, prefix) {
+    const highRate = data.highRate || 0;
+    const highCovered = data.highCovered || 0;
+    const highTotal = data.highTotal || 0;
+    const high3dRate = data.high3dRate || 0;
+    const totalRate = data.totalRate || 0;
+    const totalCovered = data.totalCovered || 0;
+    const totalTotal = data.totalTotal || 0;
+
+    const setColorByRate = (el, rate) => {
+        if (!el) return;
+        el.style.color = '';
+        if (rate >= 90) el.style.color = 'var(--accent-success)';
+        else if (rate >= 70) el.style.color = 'var(--accent-primary)';
+        else if (rate > 0) el.style.color = 'var(--accent-danger)';
+    };
+
+    const highRateEl = document.getElementById(`${prefix}-high-coverage-rate`);
+    if (highRateEl) { highRateEl.textContent = highRate.toFixed(1) + '%'; setColorByRate(highRateEl, highRate); }
+    const highDetailEl = document.getElementById(`${prefix}-high-coverage-detail`);
+    if (highDetailEl) highDetailEl.textContent = `${highCovered}건 / ${highTotal}건`;
+    const high3dEl = document.getElementById(`${prefix}-high-3d-rate`);
+    if (high3dEl) { high3dEl.textContent = high3dRate.toFixed(1) + '%'; setColorByRate(high3dEl, high3dRate); }
+
+    const totalRateEl = document.getElementById(`${prefix}-total-coverage-rate`);
+    if (totalRateEl) { totalRateEl.textContent = totalRate.toFixed(1) + '%'; setColorByRate(totalRateEl, totalRate); }
+    const totalDetailEl = document.getElementById(`${prefix}-total-coverage-detail`);
+    if (totalDetailEl) totalDetailEl.textContent = `${totalCovered}건 / ${totalTotal}건`;
+    const totalFill = document.getElementById(`${prefix}-total-coverage-fill`);
+    if (totalFill) totalFill.style.width = Math.min(totalRate, 100) + '%';
+}
+
+function clearPaymentCoverageData() {
+    document.getElementById('paymentCoverageDataInput').value = '';
+    applyPaymentCoverageFromData({}, 'mp');
+    showToast('결제콜 커버리지가 초기화되었습니다.');
+}
+
+function clearPyPaymentCoverageData() {
+    document.getElementById('pyPaymentCoverageDataInput').value = '';
+    applyPaymentCoverageFromData({}, 'py');
+    showToast('연간 결제콜 커버리지가 초기화되었습니다.');
+}
+
+// ==========================================
 // 공통 함수들
 // ==========================================
 
@@ -1874,6 +1962,16 @@ async function loadManualDataFromSheets() {
         if (data.target && data.target.amount) {
             applyTargetFromData(data.target);
         }
+
+        // 결제콜 커버리지 데이터 적용
+        if (data.paymentCoverage) {
+            applyPaymentCoverageFromData(data.paymentCoverage, 'mp');
+        }
+
+        // 연간 결제콜 커버리지 데이터 적용
+        if (data.pyPaymentCoverage) {
+            applyPaymentCoverageFromData(data.pyPaymentCoverage, 'py');
+        }
         
         console.log('수동 데이터 로드 완료');
         
@@ -2101,7 +2199,7 @@ let sharedDataPromise = null;
 const LOCAL_CACHE_KEY = 'kpi_payment_data';
 const LOCAL_CACHE_TS_KEY = 'kpi_payment_data_ts';
 const LOCAL_CACHE_VER_KEY = 'kpi_payment_data_ver';
-const LOCAL_CACHE_VERSION = '2';
+const LOCAL_CACHE_VERSION = '5';
 const LOCAL_CACHE_TTL = 10 * 60 * 1000; // 10분
 
 function preprocessData(data) {
@@ -2346,6 +2444,14 @@ async function prefetchData() {
             if (pyLoading) pyLoading.style.display = 'none';
             if (pyContent) pyContent.style.display = 'block';
         }
+        if (activeTab === 'collection') {
+            calculateAndDisplayCollectionKPIs(data);
+            calculateYearlyCollectionTracking(data);
+            const colLoading = document.getElementById('collection-loading');
+            const colContent = document.getElementById('collection-content');
+            if (colLoading) colLoading.style.display = 'none';
+            if (colContent) colContent.style.display = 'block';
+        }
     } catch (e) {
         console.warn('프리페치 실패:', e.message);
     }
@@ -2490,10 +2596,6 @@ function calculateAndDisplayMonthlyPayment(data) {
     console.log(`환급완료: ${refundCount}건, ₩${formatNumber(refundAmount)}`);
     console.log(`결제금액: ${totalCount}건, ₩${formatNumber(totalAmount)}`);
 
-    // 월간 고객 컨택률
-    calculateContactRate(refundDeals, 'monthly');
-    // 월간 30일 초과 결제 (성사일 기준)
-    calculateOver30dPayment(data, 'monthly', year, month);
 }
 
 function savePaymentTarget() {
@@ -3054,15 +3156,15 @@ function initCollectionTab() {
     const collectionTabBtn = document.querySelector('[data-tab="collection"]');
     if (collectionTabBtn) {
         collectionTabBtn.addEventListener('click', () => {
-            if (collectionDataCache) {
+            if (!collectionDataCache) {
+                loadCollectionData();
+            } else {
                 calculateAndDisplayCollectionKPIs(collectionDataCache);
                 calculateYearlyCollectionTracking(collectionDataCache);
-                const ld = document.getElementById('collection-loading');
-                const ct = document.getElementById('collection-content');
-                if (ld) ld.style.display = 'none';
-                if (ct) ct.style.display = 'block';
-            } else {
-                loadCollectionData();
+                const loadingEl = document.getElementById('collection-loading');
+                const contentEl = document.getElementById('collection-content');
+                if (loadingEl) loadingEl.style.display = 'none';
+                if (contentEl) contentEl.style.display = 'block';
             }
         });
     }
@@ -3683,10 +3785,6 @@ function calculatePaymentYearlyKPIs(data) {
     const colFill = document.getElementById('py-collection-fill');
     if (colFill) colFill.style.width = Math.min(colRate, 100) + '%';
 
-    // 5. 고객 컨택률 (연간 누적)
-    calculateContactRate(refundDeals, 'py');
-    // 6. 30일 초과 결제 (성사일 기준, 연간)
-    calculateOver30dPayment(data, 'py', year);
 }
 
 // 연간 목표
