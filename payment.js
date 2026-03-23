@@ -679,6 +679,35 @@ function renderCoverageCards(data, prefix) {
 }
 
 // ==========================================
+// 요약
+// ==========================================
+
+function generateSummary() {
+    const today = new Date();
+    const dateStr = `${today.getFullYear()}년 ${today.getMonth() + 1}월 ${today.getDate()}일`;
+    let s = `💳 결제파트 요약 (${dateStr})\n${'='.repeat(40)}\n\n`;
+
+    const ml = document.getElementById('selected-payment-month')?.textContent || '';
+    s += `📌 ${ml} 결제금액\n${'-'.repeat(30)}\n`;
+    s += `• 환급완료: ${document.getElementById('monthly-refund-amount')?.textContent || '₩0'} (${document.getElementById('monthly-refund-count')?.textContent || '0건'})\n`;
+    s += `• 결제금액: ${document.getElementById('monthly-payment-amount')?.textContent || '₩0'} (${document.getElementById('monthly-payment-count')?.textContent || '0건'})\n`;
+    s += `• 추심결제완료: ${document.getElementById('mp-colpaid-amount')?.textContent || '₩0'} (${document.getElementById('mp-colpaid-count')?.textContent || '0건'})\n\n`;
+
+    const wl = document.getElementById('selected-week')?.textContent || '';
+    s += `📌 주차별 KPI (${wl})\n${'-'.repeat(30)}\n`;
+    s += `• 환급완료: ${document.getElementById('weekly-refund-count')?.textContent || '0건'} / ${document.getElementById('weekly-refund-amount')?.textContent || '₩0'}\n`;
+    s += `• 당일결제: ${document.getElementById('weekly-sameday-count')?.textContent || '0건'} (${document.getElementById('weekly-sameday-rate')?.textContent || '0%'})\n`;
+    s += `• 30일이내: ${document.getElementById('weekly-30d-count')?.textContent || '0건'} (${document.getElementById('weekly-30d-rate')?.textContent || '0%'})\n\n`;
+
+    s += `📌 기간별 결제율\n${'-'.repeat(30)}\n`;
+    [0, 3, 7, 21, 30, 60].forEach(d => {
+        const label = d === 0 ? '당일' : `${d}일`;
+        s += `• ${label}이내: 건수 ${document.getElementById(`weekly-rate-cnt-${d}d`)?.textContent || '-'} / 금액 ${document.getElementById(`weekly-rate-amt-${d}d`)?.textContent || '-'}\n`;
+    });
+    return s;
+}
+
+// ==========================================
 // Debug: Customer Search
 // ==========================================
 

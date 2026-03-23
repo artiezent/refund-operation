@@ -258,6 +258,27 @@ function renderTable() {
     document.getElementById('tableCount').textContent = `${filtered.length}건 표시`;
 }
 
+function generateSummary() {
+    const today = new Date();
+    const dateStr = `${today.getFullYear()}년 ${today.getMonth() + 1}월 ${today.getDate()}일`;
+    let s = `📞 결제콜 커버리지 요약 (${dateStr})\n${'='.repeat(40)}\n\n`;
+
+    if (!allData || allData.length === 0) return s + '(데이터 없음)';
+
+    const monthly = getMonthlyData();
+    const yearly = getYearlyData();
+
+    [true, false].forEach(highOnly => {
+        const label = highOnly ? '고액' : '전체';
+        s += `📌 ${label} 결제콜 커버리지\n${'-'.repeat(30)}\n`;
+        const mk = calcKPI(monthly, highOnly);
+        s += `  [당월] 컨택률: ${mk.contactRate.toFixed(1)}% (${mk.contactedCount}/${mk.totalCount}건) / 소요일: ${mk.avgDays.toFixed(1)}일\n`;
+        const yk = calcKPI(yearly, highOnly);
+        s += `  [누적] 컨택률: ${yk.contactRate.toFixed(1)}% (${yk.contactedCount}/${yk.totalCount}건) / 소요일: ${yk.avgDays.toFixed(1)}일\n\n`;
+    });
+    return s;
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     displayCurrentDate();
     updateMonthDisplay();

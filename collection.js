@@ -601,6 +601,39 @@ function displayCurrentDate() {
     if (el) el.textContent = dateStr;
 }
 
+// ==========================================
+// 요약
+// ==========================================
+
+function generateSummary() {
+    const today = new Date();
+    const dateStr = `${today.getFullYear()}년 ${today.getMonth() + 1}월 ${today.getDate()}일`;
+    let s = `⚖️ 추심 요약 (${dateStr})\n${'='.repeat(40)}\n\n`;
+
+    const ml = document.getElementById('selected-collection-month')?.textContent || '';
+    s += `📌 추심 KPI (${ml})\n${'-'.repeat(30)}\n`;
+    s += `• 환급완료: ${document.getElementById('col-refund-amount')?.textContent || '₩0'} (${document.getElementById('col-refund-count')?.textContent || '0건'})\n`;
+    s += `• 이관총액: ${document.getElementById('col-transfer-amount')?.textContent || '₩0'} (${document.getElementById('col-transfer-count')?.textContent || '0건'})\n`;
+    s += `• 이관비율: ${document.getElementById('col-ratio-value')?.textContent || '0%'}\n\n`;
+
+    const yl = document.getElementById('selected-collection-year')?.textContent || '';
+    s += `📌 연간 이관 결제 추적 (${yl})\n${'-'.repeat(30)}\n`;
+    document.querySelectorAll('#yearly-collection-body .yt-row').forEach(row => {
+        const cells = row.querySelectorAll('td');
+        if (cells.length < 3) return;
+        const m = cells[0]?.textContent?.trim() || '';
+        const transfer = cells[1]?.textContent?.trim().replace(/\s+/g, ' ') || '';
+        const paid = cells[2]?.textContent?.trim().replace(/\s+/g, ' ') || '';
+        if (transfer === '- 0건') return;
+        s += `• ${m}: 이관 ${transfer} / 성사 ${paid}\n`;
+    });
+    return s;
+}
+
+// ==========================================
+// 초기화
+// ==========================================
+
 function init() {
     displayCurrentDate();
     updateCollectionMonthDisplay();

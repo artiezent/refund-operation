@@ -308,6 +308,38 @@ function displayCurrentDate() {
 }
 
 // ==========================================
+// 요약
+// ==========================================
+
+function generateSummary() {
+    const today = new Date();
+    const dateStr = `${today.getFullYear()}년 ${today.getMonth() + 1}월 ${today.getDate()}일`;
+    let s = `💳 결제파트 누적 요약 (${dateStr})\n${'='.repeat(40)}\n\n`;
+
+    const yl = document.getElementById('selected-py-year')?.textContent || '';
+    s += `📌 ${yl} 연간 결제\n${'-'.repeat(30)}\n`;
+    s += `• 환급완료: ${document.getElementById('yearly-refund-amount')?.textContent || '₩0'} (${document.getElementById('yearly-refund-count')?.textContent || '0건'})\n`;
+    s += `• 결제금액: ${document.getElementById('yearly-payment-amount')?.textContent || '₩0'} (${document.getElementById('yearly-payment-count')?.textContent || '0건'})\n`;
+    s += `• 추심결제완료: ${document.getElementById('py-colpaid-amount')?.textContent || '₩0'} (${document.getElementById('py-colpaid-count')?.textContent || '0건'})\n\n`;
+
+    s += `📌 연간 커버리지\n${'-'.repeat(30)}\n`;
+    s += `• 고액 컨택률: ${document.getElementById('py-high-coverage-rate')?.textContent || '-'} (${document.getElementById('py-high-coverage-detail')?.textContent || '-'})\n`;
+    s += `• 전체 컨택률: ${document.getElementById('py-total-coverage-rate')?.textContent || '-'} (${document.getElementById('py-total-coverage-detail')?.textContent || '-'})\n\n`;
+
+    s += `📌 월별 결제 추적\n${'-'.repeat(30)}\n`;
+    document.querySelectorAll('#py-yearly-body tr').forEach(row => {
+        const cells = row.querySelectorAll('td');
+        if (cells.length < 3) return;
+        const m = cells[0]?.textContent?.trim() || '';
+        const refund = cells[1]?.textContent?.trim().replace(/\s+/g, ' ') || '';
+        const paid = cells[2]?.textContent?.trim().replace(/\s+/g, ' ') || '';
+        if (refund.includes('₩0') && paid.includes('₩0')) return;
+        s += `• ${m}: 환급 ${refund} / 결제 ${paid}\n`;
+    });
+    return s;
+}
+
+// ==========================================
 // 초기화
 // ==========================================
 

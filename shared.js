@@ -251,6 +251,88 @@ async function loadManualData() {
 }
 
 // ==========================================
+// 화면 캡처 / 요약
+// ==========================================
+
+function formatToEok(amount) {
+    const num = typeof amount === 'string' ? parseInt(amount.replace(/[₩,\s]/g, ''), 10) : amount;
+    if (isNaN(num) || num === 0) return '0억';
+    return (num / 100000000).toFixed(2) + '억';
+}
+
+async function captureAndCopy() {
+    try {
+        showToast('캡처 중...');
+        const hideEls = document.querySelectorAll('.hide-on-capture');
+        const modal = document.getElementById('summaryModal');
+        hideEls.forEach(el => el.style.display = 'none');
+        if (modal) modal.classList.remove('active');
+
+        const target = document.querySelector('.dashboard-content') || document.body;
+        const blob = await htmlToImage.toBlob(target, { backgroundColor: '#0f172a', pixelRatio: 2 });
+
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+        showToast('이미지가 클립보드에 복사되었습니다!');
+        hideEls.forEach(el => el.style.display = '');
+    } catch (err) {
+        console.error('캡처 실패:', err);
+        showToast('캡처에 실패했습니다.', 'error');
+        document.querySelectorAll('.hide-on-capture').forEach(el => el.style.display = '');
+    }
+}
+
+async function captureAndSave() {
+    try {
+        showToast('캡처 중...');
+        const hideEls = document.querySelectorAll('.hide-on-capture');
+        const modal = document.getElementById('summaryModal');
+        hideEls.forEach(el => el.style.display = 'none');
+        if (modal) modal.classList.remove('active');
+
+        const target = document.querySelector('.dashboard-content') || document.body;
+        const dataUrl = await htmlToImage.toPng(target, { backgroundColor: '#0f172a', pixelRatio: 2 });
+
+        const dateStr = new Date().toISOString().split('T')[0];
+        const link = document.createElement('a');
+        link.download = `KPI_${document.title}_${dateStr}.png`;
+        link.href = dataUrl;
+        link.click();
+        showToast('이미지가 저장되었습니다!');
+        hideEls.forEach(el => el.style.display = '');
+    } catch (err) {
+        console.error('저장 실패:', err);
+        showToast('저장에 실패했습니다.', 'error');
+        document.querySelectorAll('.hide-on-capture').forEach(el => el.style.display = '');
+    }
+}
+
+function showSummary() {
+    const modal = document.getElementById('summaryModal');
+    const textarea = document.getElementById('summaryText');
+    if (!modal || !textarea) return;
+    textarea.value = typeof generateSummary === 'function' ? generateSummary() : '요약 기능이 없습니다.';
+    modal.classList.add('active');
+}
+
+function closeSummary() {
+    const modal = document.getElementById('summaryModal');
+    if (modal) modal.classList.remove('active');
+}
+
+async function copySummary() {
+    const textarea = document.getElementById('summaryText');
+    if (!textarea) return;
+    try {
+        await navigator.clipboard.writeText(textarea.value);
+        showToast('요약이 복사되었습니다!');
+    } catch (err) {
+        textarea.select();
+        document.execCommand('copy');
+        showToast('요약이 복사되었습니다!');
+    }
+}
+
+// ==========================================
 // 결제콜 커버리지 공용
 // ==========================================
 

@@ -11,11 +11,11 @@
         <div class="dashboard-content">
             <header class="header">
                 <h1 class="logo">추심</h1>
-                <div class="header-actions">
-                    <button class="action-btn" onclick="refreshAllData()" title="새로고침">
-                        <span class="action-icon">🔄</span>
-                        <span class="action-label">새로고침</span>
-                    </button>
+                <div class="header-actions hide-on-capture">
+                    <button class="action-btn" onclick="captureAndCopy()" title="화면 복사"><span class="action-icon">📋</span><span class="action-label">복사</span></button>
+                    <button class="action-btn" onclick="captureAndSave()" title="이미지 저장"><span class="action-icon">💾</span><span class="action-label">저장</span></button>
+                    <button class="action-btn" onclick="showSummary()" title="요약"><span class="action-icon">📝</span><span class="action-label">요약</span></button>
+                    <button class="action-btn" onclick="refreshAllData()" title="새로고침"><span class="action-icon">🔄</span><span class="action-label">새로고침</span></button>
                 </div>
                 <div class="date-display" id="currentDate"></div>
             </header>
@@ -204,6 +204,14 @@
         </div>
     </div>
 
+    <div class="modal-overlay" id="summaryModal">
+        <div class="modal-content">
+            <div class="modal-header"><h3>📊 요약</h3><button class="btn btn-sm btn-secondary" onclick="closeSummary()">✕</button></div>
+            <div class="modal-body"><textarea id="summaryText" class="summary-textarea" readonly></textarea></div>
+            <div class="modal-footer"><button class="btn btn-primary btn-sm" onclick="copySummary()">📋 복사</button><button class="btn btn-secondary btn-sm" onclick="closeSummary()">닫기</button></div>
+        </div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/html-to-image@1.11.11/dist/html-to-image.js"></script>
     <script src="shared.js"></script>
     <script src="collection.js"></script>
 </body>

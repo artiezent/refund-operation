@@ -991,4 +991,25 @@ async function init() {
     }
 }
 
+function generateSummary() {
+    const today = new Date();
+    const dateStr = `${today.getFullYear()}년 ${today.getMonth() + 1}월 ${today.getDate()}일`;
+    let s = `📊 전환파트 요약 (${dateStr})\n${'='.repeat(40)}\n\n`;
+
+    s += `🏆 성과 요약\n${'-'.repeat(30)}\n`;
+    s += `• 신청전환: ${document.getElementById('perf-apply-amount')?.textContent || '₩0'} (${document.getElementById('perf-apply-count')?.textContent || '0건'})\n`;
+    s += `• 취소방어: ${document.getElementById('perf-defense-amount')?.textContent || '₩0'} (${document.getElementById('perf-defense-count')?.textContent || '0건'})\n`;
+    s += `• 합계: ${document.getElementById('perf-total-amount')?.textContent || '₩0'}\n`;
+    s += `• 목표: ${document.getElementById('perf-target-display')?.textContent || '미설정'} / 진행률: ${document.getElementById('perf-progress-rate')?.textContent || '0%'}\n\n`;
+
+    s += `📌 커버리지 현황\n${'-'.repeat(30)}\n`;
+    s += `• 건수: ${document.getElementById('coverage-count-rate')?.textContent || '-'}\n`;
+    s += `• 금액: ${document.getElementById('coverage-amount-rate')?.textContent || '-'}\n\n`;
+
+    s += `📌 활동수 현황\n${'-'.repeat(30)}\n`;
+    s += `• 신청전환: 총 ${document.getElementById('apply-total-value')?.textContent || '0'} / 부가 ${document.getElementById('apply-extra-value')?.textContent || '0'}\n`;
+    s += `• 취소방어: 총 ${document.getElementById('defense-total-value')?.textContent || '0'} / 부가 ${document.getElementById('defense-extra-value')?.textContent || '0'}\n`;
+    return s;
+}
+
 document.addEventListener('DOMContentLoaded', init);
