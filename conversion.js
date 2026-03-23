@@ -992,23 +992,39 @@ async function init() {
 }
 
 function generateSummary() {
-    const today = new Date();
-    const dateStr = `${today.getFullYear()}년 ${today.getMonth() + 1}월 ${today.getDate()}일`;
-    let s = `📊 전환파트 요약 (${dateStr})\n${'='.repeat(40)}\n\n`;
+    const g = id => document.getElementById(id)?.textContent || '';
+    const eok = id => formatToEok(g(id));
 
+    let s = '';
     s += `🏆 성과 요약\n${'-'.repeat(30)}\n`;
-    s += `• 신청전환: ${document.getElementById('perf-apply-amount')?.textContent || '₩0'} (${document.getElementById('perf-apply-count')?.textContent || '0건'})\n`;
-    s += `• 취소방어: ${document.getElementById('perf-defense-amount')?.textContent || '₩0'} (${document.getElementById('perf-defense-count')?.textContent || '0건'})\n`;
-    s += `• 합계: ${document.getElementById('perf-total-amount')?.textContent || '₩0'}\n`;
-    s += `• 목표: ${document.getElementById('perf-target-display')?.textContent || '미설정'} / 진행률: ${document.getElementById('perf-progress-rate')?.textContent || '0%'}\n\n`;
+    s += `• 신청전환 성공: ${eok('perf-apply-amount')} (${g('perf-apply-count') || '0건'})\n`;
+    s += `• 취소방어 성공: ${eok('perf-defense-amount')} (${g('perf-defense-count') || '0건'})\n`;
+    s += `• 합계: ${eok('perf-total-amount')}\n`;
+    s += `• 목표: ${g('perf-target-display') || '미설정'} / 진행률: ${g('perf-progress-rate') || '0%'}\n\n`;
 
     s += `📌 커버리지 현황\n${'-'.repeat(30)}\n`;
-    s += `• 건수: ${document.getElementById('coverage-count-rate')?.textContent || '-'}\n`;
-    s += `• 금액: ${document.getElementById('coverage-amount-rate')?.textContent || '-'}\n\n`;
+    s += `• 건수 커버리지: ${g('coverage-count-rate') || '0%'}\n`;
+    s += `  - 전환 성공: ${g('success-count') || '0'}건 / 컨택 진행: ${g('contact-count') || '0'}건\n`;
+    s += `• 금액 커버리지: ${g('coverage-amount-rate') || '0%'}\n`;
+    s += `  - 전환 성공: ${eok('success-amount')} / 컨택 진행: ${eok('contact-amount')}\n\n`;
 
     s += `📌 활동수 현황\n${'-'.repeat(30)}\n`;
-    s += `• 신청전환: 총 ${document.getElementById('apply-total-value')?.textContent || '0'} / 부가 ${document.getElementById('apply-extra-value')?.textContent || '0'}\n`;
-    s += `• 취소방어: 총 ${document.getElementById('defense-total-value')?.textContent || '0'} / 부가 ${document.getElementById('defense-extra-value')?.textContent || '0'}\n`;
+    s += `• 신청 전환 활동수\n`;
+    s += `  - 총 활동: ${g('apply-total-value') || '0'} / 부가활동: ${g('apply-extra-value') || '0'}\n`;
+    s += `• 취소 방어 활동수\n`;
+    s += `  - 총 활동: ${g('defense-total-value') || '0'} / 부가활동: ${g('defense-extra-value') || '0'}\n\n`;
+
+    s += `📌 총조회대비 신청전환\n${'-'.repeat(30)}\n`;
+    s += `• 총조회 대비 전체 신청률: ${g('apply-total-rate-rate') || '0%'}\n`;
+    s += `  - 총조회: ${eok('total-view-amount')} / 조회 신청: ${eok('total-apply-amount')}\n`;
+    s += `• 총조회 대비 전환 성공률: ${g('apply-success-rate-rate') || '0%'}\n`;
+    s += `  - 총조회: ${eok('total-view-amount')} / 전환 성공: ${eok('apply-convert-amount')}\n\n`;
+
+    s += `📌 총검토대비 취소방어\n${'-'.repeat(30)}\n`;
+    s += `• 전체취소 대비 검토완료율: ${g('cancel-review-rate-rate') || '0%'}\n`;
+    s += `  - 전체취소: ${eok('cancel-request-amount')} / 검토완료: ${eok('cancel-available-amount')}\n`;
+    s += `• 검토완료 대비 방어 성공률: ${g('cancel-defense-rate-rate') || '0%'}\n`;
+    s += `  - 검토완료: ${eok('cancel-available-amount')} / 취소방어 성공: ${eok('cancel-success-amount')}\n`;
     return s;
 }
 
