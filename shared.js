@@ -269,7 +269,7 @@ async function captureAndCopy() {
         if (modal) modal.classList.remove('active');
 
         const target = document.querySelector('.dashboard-content') || document.body;
-        const blob = await htmlToImage.toBlob(target, { backgroundColor: '#0f172a', pixelRatio: 2 });
+        const blob = await htmlToImage.toBlob(target, { backgroundColor: '#f5f7fa', pixelRatio: 2 });
 
         await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
         showToast('이미지가 클립보드에 복사되었습니다!');
@@ -290,7 +290,7 @@ async function captureAndSave() {
         if (modal) modal.classList.remove('active');
 
         const target = document.querySelector('.dashboard-content') || document.body;
-        const dataUrl = await htmlToImage.toPng(target, { backgroundColor: '#0f172a', pixelRatio: 2 });
+        const dataUrl = await htmlToImage.toPng(target, { backgroundColor: '#f5f7fa', pixelRatio: 2 });
 
         const dateStr = new Date().toISOString().split('T')[0];
         const link = document.createElement('a');
